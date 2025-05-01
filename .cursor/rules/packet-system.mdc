@@ -1,0 +1,38 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Ace Of Spades Packet System
+
+## Packet Architecture
+The game uses a packet-based networking system where each packet type represents a specific game action or state.
+
+## Packet Implementation
+Each packet in [test_packets.py](mdc:test_packets.py) follows a similar pattern:
+1. Create packet instance
+2. Set packet properties
+3. Serialize to binary (write)
+4. Deserialize from binary (read)
+5. Verify properties match
+
+## Key Packet Types
+- **Game State**: InitialInfo, SetHP, MapEnded, etc.
+- **Player Actions**: ShootPacket, BlockBuild, ChangeTeam, etc.
+- **World Objects**: PlaceMG, PlaceMedPack, PlaceC4, etc.
+- **UI/Feedback**: ChatMessage, ShowTextMessage, PlaySound, etc.
+
+## Testing Process
+The test_packets.py file contains both the packet definitions and the test functions to verify their correctness.
+
+The packet verification works by:
+1. Creating a packet with known test values
+2. Writing the packet to a ByteWriter (serialization)
+3. Reading the packet from a ByteReader (deserialization)
+4. Dumping the packet properties to verify integrity
+
+## Python Version Handling
+- Python 2 is used to test against the original implementation in the aosdump directory
+- Python 3 is used to test against the new implementation in the project root
+- The script automatically adjusts import paths based on Python version
+
