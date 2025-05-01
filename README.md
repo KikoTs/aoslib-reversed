@@ -5,7 +5,7 @@ This project aims to reverse engineer Ace Of Spades 1.x libraries, focusing on p
 ## Project Status
 
 Current decompilation progress:
-- **shared.packet**: 88/125 functions completed (70.4%)
+- **shared.packet**: 110/125 functions completed (88%)
 - **shared.bytes**: 3/3 classes completed (100%)
 
 ## Setup Requirements

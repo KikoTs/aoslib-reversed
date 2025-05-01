@@ -747,10 +747,204 @@ def test_fog_color(): # 1:1
     
     return current_packet
 
+def test_block_build_colored(): # 1:1
+    current_packet = packet.BlockBuildColored()
+    current_packet.loop_count = 1
+    current_packet.player_id = 1
+    current_packet.x = 2
+    current_packet.y = 3
+    current_packet.z = 4
+    current_packet.color = 5
+    return current_packet
+
+def test_use_oriented_item(): # 1:1
+    current_packet = packet.UseOrientedItem()
+    current_packet.loop_count = 1
+    current_packet.player_id = 1
+    current_packet.tool = 2
+    current_packet.value = 3.0
+    current_packet.position = (4, 5, 6)
+    current_packet.velocity = (7, 8, 9)
+    return current_packet
+
+def test_terrytory_base_state(): # 1:1
+    current_packet = packet.TerritoryBaseState()
+    current_packet.action = 1
+    current_packet.attacked_by = 2
+    current_packet.base_index = 3
+    current_packet.capture_amount = 1.0
+    current_packet.controlled_by = 5
+    return current_packet
+
+def test_set_color(): # 1:1
+    current_packet = packet.SetColor()
+    current_packet.player_id = 1
+    current_packet.value = 2
+    return current_packet
+
+def test_set_ground_colors(): # 1:1
+    current_packet = packet.SetGroundColors()
+    current_packet.ground_colors = [(1,2,3,4)]
+    return current_packet
+
+def test_damage(): # 1:1
+    current_packet = packet.Damage()
+    current_packet.player_id = 1
+    current_packet.type = 2
+    current_packet.damage = 3.3
+    current_packet.face = 4
+    current_packet.chunk_check = 5
+    current_packet.seed = 6
+    current_packet.causer_id = 7
+    current_packet.position = (8.1, 9.2, 10.3)
+    return current_packet
+
+def test_progress_bar(): # 1:1
+    current_packet = packet.ProgressBar()
+    current_packet.progress = 1.0
+    current_packet.rate = 1.0
+    current_packet.color1 = (1,2,3)
+    current_packet.color2 = (4,5,6)
+    current_packet.stopped = True
+    return current_packet
+
+def test_map_data_validation(): # 1:1
+    current_packet = packet.MapDataValidation()
+    current_packet.crc = 1
+    return current_packet
+
+def test_create_player(): # 1:1
+    current_packet = packet.CreatePlayer()
+    current_packet.player_id = 1
+    current_packet.demo_player = 2
+    current_packet.class_id = 3
+    current_packet.team = 4
+    current_packet.dead = 5
+    current_packet.local_language = 6
+    current_packet.loadout = [1, 2, 3]
+    current_packet.prefabs = ["test1", "test2", "test3"]
+    current_packet.x = 1.0
+    current_packet.y = 2.0
+    current_packet.z = 3.0
+    current_packet.ori_x = 4.0
+    current_packet.ori_y = 5.0
+    current_packet.ori_z = 6.0
+    current_packet.name = "test"
+    return current_packet
+
+def test_paint_block(): # 1:1
+    current_packet = packet.PaintBlockPacket()
+    current_packet.loop_count = 1
+    current_packet.x = 2
+    current_packet.y = 3
+    current_packet.z = 4
+    current_packet.color = (1,2,3)
+    return current_packet
+
+def test_localised_message(): # 1:1
+    current_packet = packet.LocalisedMessage()
+    current_packet.chat_type = 1
+    current_packet.localise_parameters = 2
+    current_packet.override_previous_message = 3
+    current_packet.parameters = ["test"]
+    current_packet.string_id = "test"
+    return current_packet
+
+def test_build_prefab_action(): # 1:1
+    current_packet = packet.BuildPrefabAction()
+    current_packet.loop_count = 1
+    current_packet.player_id = 1
+    current_packet.prefab_name = "test"
+    current_packet.prefab_pitch = 1
+    current_packet.prefab_roll = 1
+    current_packet.from_block_index = 1
+    current_packet.to_block_index = 2
+    current_packet.position = (3, 4, 5)
+    current_packet.color = (6, 7, 8)
+    current_packet.add_to_user_blocks = 1
+    return current_packet
+
+def test_map_data_chunk(): # 1:1
+    current_packet = packet.MapDataChunk()
+    current_packet.data = b"test"
+    current_packet.percent_complete = 1
+    return current_packet
+
+def test_map_data_end(): # 1:1
+    current_packet = packet.MapDataEnd()
+    return current_packet
+
+def test_map_data_start(): # 1:1
+    current_packet = packet.MapDataStart()
+    return current_packet
+
+def test_existing_player(): # 1:1
+    current_packet = packet.ExistingPlayer()
+    current_packet.class_id = 1
+    current_packet.color = 2
+    current_packet.dead = 3
+    current_packet.demo_player = 4
+    current_packet.forced_team = 5
+    current_packet.loadout = [1,2,3]
+    current_packet.local_language = 6
+    current_packet.name = "test"
+    current_packet.pickup = 7
+    current_packet.player_id = 8
+    current_packet.prefabs = ["test1", "test2", "test3"]
+    current_packet.score = 9
+    current_packet.team = 10
+    current_packet.tool = 11
+    return current_packet
+
+def test_new_player_connection(): # 1:1
+    current_packet = packet.NewPlayerConnection()
+    current_packet.team = 1
+    current_packet.class_id = 2
+    current_packet.forced_team = 3
+    current_packet.local_language = 4
+    current_packet.name = "test"
+    return current_packet
+
+def test_game_stats(): # 1:1
+    current_packet = packet.GameStats()
+    current_packet.noOfStats = 3
+    current_packet.player_ids = [1,2,3]
+    current_packet.team_id = 4
+    current_packet.types = [1,2,3]
+    return current_packet
+
+def test_client_data(): # 1:1
+    current_packet = packet.ClientData()
+    current_packet.loop_count = 1
+    current_packet.player_id = 2
+    current_packet.tool_id = 3
+    current_packet.o_x = 7.0
+    current_packet.o_y = 7.0
+    current_packet.o_z = 7.0
+    current_packet.ooo = 7
+    current_packet.up = True
+    current_packet.down = True
+    current_packet.left = True
+    current_packet.right = True
+    current_packet.jump = True
+    current_packet.crouch = True
+    current_packet.sneak = True
+    current_packet.sprint = True
+    current_packet.primary = True
+    current_packet.secondary = True
+    current_packet.zoom = True
+    current_packet.can_pickup = True
+    current_packet.can_display_weapon = True
+    current_packet.is_on_fire = True
+    current_packet.is_weapon_deployed = True
+    current_packet.hover = True
+    current_packet.palette_enabled = True
+    current_packet.weapon_deployment_yaw = 1.0
+    return current_packet
 
 
 def test_packets():
-    current_packet = test_fog_color()
+    current_packet = test_client_data()
 
     writer = ByteWriter()
     current_packet.write(writer)
@@ -763,7 +957,7 @@ def test_packets():
     if len(writer_data) > 1:
         writer_data = writer_data[1:]  # Skip the first byte (packet ID)
     reader = ByteReader(writer_data)
-    current_packet = packet.FogColor(reader)
+    current_packet = packet.ClientData(reader)
     print("Raw object output:")
     
     # Dump all attributes of the object
@@ -783,4 +977,4 @@ def test_packets():
                 print("{}: <error retrieving value>".format(attr))
 
 test_packets()
-# 88/125
+# 110/125

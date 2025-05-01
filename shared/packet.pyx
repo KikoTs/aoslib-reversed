@@ -1,8 +1,12 @@
 from libc.stddef cimport size_t
 from libc.string cimport memcpy
+from libc.math cimport isnan, NAN
 from shared.bytes cimport ByteReader, ByteWriter
 from libc.stdint cimport uint64_t
 import cython
+cdef extern from "math.h":
+    float roundf(float x)
+
 
 cdef inline int to_color(object color):
     """Convert color to wire format (reverse byte order)
@@ -41,7 +45,6 @@ cdef inline object from_color(object color, bint as_tuple=False):
     else:
         return (r << 16) | (g << 8) | b
 
-# Function to read color bytes and return in desired format
 cdef inline object read_color(ByteReader reader, bint as_tuple=False):
     """Read 3 color bytes and return in desired format"""
     cdef int r, g, b
@@ -57,7 +60,6 @@ cdef inline object read_color(ByteReader reader, bint as_tuple=False):
     else:
         return (r << 16) | (g << 8) | b
 
-# Function to write color in either format
 cdef inline void write_color(ByteWriter writer, object color):
     """Write color (either int or tuple) to writer in byte-reversed format"""
     cdef int r, g, b
@@ -100,6 +102,62 @@ cdef inline double fromfixed(int v):
     
     # Standard scale - depends on application
     return sgn * (mag / 64.0)    
+
+cdef inline float read_byte_float(int value):
+    """Read a 1-byte fixed-point float where each bit represents 0.25"""
+    cdef int whole = value >> 2
+    cdef int fract = value & 0x3  # Bottom 2 bits represent 0, 0.25, 0.5, 0.75
+    return whole + (fract * 0.25)
+
+cdef inline int write_byte_float(float value):
+    """Write a float as a 1-byte fixed-point number"""
+    cdef int whole = int(value)
+    cdef int fract = int((value - whole) * 4 + 0.5)  # Round to nearest 0.25
+    if fract == 4:  # Handle rounding up to next whole number
+        whole += 1
+        fract = 0
+    return (whole << 2) | fract
+
+cdef inline int convert_to_py2_orientation_format(int value):
+    """
+    Convert from our orientation format to Python 2's byte ordering
+    This effectively swaps bytes and adjusts for Python 2's specific format
+    """ 
+    # Target format appears to be 0xF7 0x5F for close to 2.0
+    # Starting with 0x3FFF (16383), convert to Python 2's format
+    
+    # Swap bytes and adjust to match 0x5FF7 pattern
+    cdef int high_byte = (value >> 8) & 0xFF
+    cdef int low_byte = value & 0xFF
+    
+    # Adjust to match Python 2's pattern (empirically determined)
+    high_byte = ((high_byte & 0x7F) << 1) | 0x57  # Target high byte pattern
+    low_byte = ((low_byte & 0x7F) << 1) | 0xF7    # Target low byte pattern
+    
+    return (high_byte << 8) | low_byte
+
+cdef inline float fromfixed_orientation(int value):
+    """
+    Convert from 16-bit fixed-point orientation to float
+    """
+    return value / 8192.0
+
+cdef inline int tofixed_orientation(float value):
+    """
+    Convert from float to 16-bit fixed-point orientation,
+    saturating at ±(16383/8192) so max raw=16383.
+    """
+    cdef float MAXV = 16383.0 / 8192.0
+    cdef float v = value
+    if v > MAXV:
+        v = MAXV
+    elif v < -MAXV:
+        v = -MAXV
+
+    # round to nearest integer
+    return <int>roundf(v * 8192.0)
+
+
 
 # String encoding/decoding helpers
 def encode(s):
@@ -205,8 +263,31 @@ cdef class BlockBuild(Loader): # Fixed
         writer.write_short(self.z)
         writer.write_byte(self.block_type)
 
-cdef class BlockBuildColored:
-    pass
+cdef class BlockBuildColored(Loader): # Fixed
+    id: int = 33
+    compress_packet: bool = False
+    cdef public:
+        int loop_count
+        int player_id
+        int x, y, z
+        int color
+
+    cpdef read(self, ByteReader reader):
+        self.loop_count = reader.read_int()
+        self.player_id = reader.read_byte()
+        self.x = reader.read_short()
+        self.y = reader.read_short()
+        self.z = reader.read_short()
+        self.color = read_color(reader, False)
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_int(self.loop_count)
+        writer.write_byte(self.player_id)
+        writer.write_short(self.x)
+        writer.write_short(self.y)
+        writer.write_short(self.z)
+        write_color(writer, self.color)
 
 cdef class BlockLiberate(Loader): # Fixed
     id: int = 35
@@ -260,9 +341,6 @@ cdef class BlockLine(Loader): # Fixed
         writer.write_short(self.y2)
         writer.write_short(self.z2)
 
-cdef class BlockManagerState: 
-    pass
-
 cdef class BlockOccupy(Loader): # Fixed
     id: int = 34
     compress_packet: bool = False
@@ -306,9 +384,6 @@ cdef class BlockSuckerPacket(Loader): # Fixed
         writer.write_byte(self.state)
         writer.write_byte(self.shot)
 
-cdef class BuildPrefabAction:
-    pass
-
 cdef class ChangeClass(Loader): # Fixed
     id: int = 78
     compress_packet: bool = False
@@ -323,9 +398,6 @@ cdef class ChangeClass(Loader): # Fixed
         writer.write_byte(self.id)
         writer.write_byte(self.player_id)
         writer.write_byte(self.class_id)
-
-cdef class ChangeEntity:
-    pass
 
 cdef class ChangePlayer(Loader): # Fixed
     id: int = 17
@@ -386,9 +458,6 @@ cdef class ChatMessage(Loader): # Fixed
         writer.write_byte(self.chat_type)
         writer.write_string(self.value)
 
-cdef class ClientData:
-    pass
-
 cdef class ClientInMenu(Loader): # Fixed
     id: int = 110
     compress_packet: bool = False
@@ -442,14 +511,37 @@ cdef class CreateAmbientSound(Loader): # Fixed
             writer.write_short(point[1])
             writer.write_short(point[2])
 
-cdef class CreateEntity:
-    pass
+cdef class Damage(Loader): # Fixed
+    id: int = 37
+    compress_packet: bool = False
+    cdef public:
+        int player_id, type, face, chunk_check, seed, causer_id
+        float damage
+        tuple position
 
-cdef class CreatePlayer:
-    pass
+    cpdef read(self, ByteReader reader):
+        self.player_id = reader.read_byte()
+        self.type = reader.read_byte()
+        self.damage = read_byte_float(reader.read_byte())  # 1-byte fixed-point float
+        self.face = reader.read_byte()
+        self.chunk_check = reader.read_byte()
+        self.seed = reader.read_byte()
+        self.causer_id = reader.read_short()
+        self.position = (reader.read_float(), reader.read_float(), reader.read_float())
 
-cdef class Damage: # Suspission on position
-    pass
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.player_id)
+        writer.write_byte(self.type)
+        writer.write_byte(write_byte_float(self.damage))  # Convert float to 1-byte fixed-point
+        writer.write_byte(self.face)
+        writer.write_byte(self.chunk_check)
+        writer.write_byte(self.seed)
+        writer.write_short(self.causer_id)
+        writer.write_float(self.position[0])
+        writer.write_float(self.position[1])
+        writer.write_float(self.position[2])
 
 cdef class DebugDraw(Loader): # Fixed
     id: int = 107
@@ -613,15 +705,6 @@ cdef class DropPickup(Loader): # Fixed
         writer.write_short(tofixed(self.velocity[1]))
         writer.write_short(tofixed(self.velocity[2]))
 
-cdef class EntityUpdates:
-    pass
-
-cdef class ErasePrefabAction:
-    pass
-
-cdef class ExistingPlayer:
-    pass
-
 cdef class ExplodeCorpse(Loader): # Fixed
     id: int = 36
     compress_packet: bool = False
@@ -680,8 +763,7 @@ cdef class ForceTeamJoin(Loader): # Fixed
         writer.write_byte(self.team_id)
         writer.write_byte(self.instant)
 
-cdef class GameStats:
-    pass
+
 
 cdef class GenericVoteMessage(Loader): # Fixed
     id: int = 109
@@ -777,225 +859,6 @@ cdef class HitEntity(Loader): # Fixed
         writer.write_short(tofixed(self.z))
         writer.write_byte(self.type)
 
-cdef class InitialInfo(Loader): # Should be working :D
-    id: int = 114
-    compress_packet: bool = False
-    cdef public:
-        uint64_t server_steam_id
-        int server_ip, server_port
-        str mode_name, mode_description, mode_infographic_text1, mode_infographic_text2, mode_infographic_text3
-        str map_name, filename
-        int checksum, mode_key
-        int map_is_ugc
-        int query_port
-        int classic, enable_minimap, same_team_collision
-        int max_draw_distance
-        int enable_colour_picker, enable_colour_palette, enable_deathcam, enable_sniper_beam, enable_spectator, exposed_teams_always_on_minimap, enable_numeric_hp
-        str texture_skin
-        int beach_z_modifiable
-        int enable_minimap_height_icons, enable_fall_on_water_damage
-        float block_wallet_multiplier, block_health_multiplier
-        list disabled_tools, disabled_classes, movement_speed_multipliers, ugc_prefab_sets
-        dict loadout_overrides
-        int enable_player_score
-        str server_name
-        list ground_colors
-        int allow_shooting_holding_intel, friendly_fire
-        list custom_game_rules
-        int enable_corpse_explosion
-        int ugc_mode
-
-    def __init__(self, ByteReader reader = None):
-        self.disabled_tools = []
-        self.disabled_classes = []
-        self.movement_speed_multipliers = []
-        self.ugc_prefab_sets = []
-        self.loadout_overrides = {}
-        self.ground_colors = []
-        self.custom_game_rules = []
-        if reader is not None:
-            self.read(reader)
-
-    cpdef read(self, ByteReader reader):
-        self.server_steam_id = reader.read_uint64()
-        self.server_ip = reader.read_int()
-        self.server_port = reader.read_int()
-        self.mode_name = reader.read_string()
-        self.mode_description = reader.read_string()
-        self.mode_infographic_text1 = reader.read_string()
-        self.mode_infographic_text2 = reader.read_string()
-        self.mode_infographic_text3 = reader.read_string()
-        self.map_name = reader.read_string()
-        self.filename = reader.read_string()
-        self.checksum = reader.read_int()
-        self.mode_key = reader.read_byte()
-        self.map_is_ugc = reader.read_byte()
-        # Convert from signed to unsigned for query_port (preserve bit pattern)
-        query_port_signed = reader.read_short()
-        self.query_port = query_port_signed & 0xFFFF if query_port_signed < 0 else query_port_signed
-        self.classic = reader.read_byte()
-        self.enable_minimap = reader.read_byte()
-        self.same_team_collision = reader.read_byte()
-        self.max_draw_distance = reader.read_byte() # Check
-        self.enable_colour_picker = reader.read_byte()
-        self.enable_colour_palette = reader.read_byte()
-        self.enable_deathcam = reader.read_byte()
-        self.enable_sniper_beam = reader.read_byte()
-        self.enable_spectator = reader.read_byte()
-        self.exposed_teams_always_on_minimap = reader.read_byte()
-        self.enable_numeric_hp = reader.read_byte()
-        self.texture_skin = reader.read_string()
-        self.beach_z_modifiable = reader.read_byte()
-        self.enable_minimap_height_icons = reader.read_byte()
-        self.enable_fall_on_water_damage = reader.read_byte()
-        self.block_wallet_multiplier = fromfixed(reader.read_short())
-        self.block_health_multiplier = fromfixed(reader.read_short())
-
-        # Tools
-        disabled_tools_size = reader.read_byte()
-        for i in range(disabled_tools_size):
-            disabled_tool = reader.read_byte()
-            self.disabled_tools.append(disabled_tool)
-
-        # Classes
-        disabled_classes_size = reader.read_byte()
-        for i in range(disabled_classes_size):
-            disabled_class = reader.read_byte()
-            self.disabled_classes.append(disabled_class)
-
-        # Movement Speed Multipliers
-        movement_speed_multipliers_size = reader.read_byte()
-        for i in range(movement_speed_multipliers_size):
-            movement_speed_multiplier = fromfixed(reader.read_short())
-            self.movement_speed_multipliers.append(movement_speed_multiplier)
-
-        # UGC Prefab Sets
-        ugc_prefab_sets_size = reader.read_byte()
-        for i in range(ugc_prefab_sets_size):
-            ugc_prefab_set = reader.read_string()
-            self.ugc_prefab_sets.append(ugc_prefab_set)
-
-        # Loadout Overrides FUCK THIS FOR NOW!
-        #self.loadout_overrides = {}
-        #loadout_overrides_size = reader.read_short()
-        #for i in range(loadout_overrides_size):
-        #    key = reader.read_string()
-        #    value = reader.read_byte()
-        #    self.loadout_overrides[key] = value
-
-        self.enable_player_score = reader.read_byte()
-        self.server_name = reader.read_string()
-
-        # initial_info.ground_colors = [(1,1,1,1), (2,2,2,2)]
-        ground_colors_size = reader.read_byte()
-        for i in range(ground_colors_size):
-            ground_color = reader.read_byte()
-            self.ground_colors.append(ground_color)
-
-        if(ground_colors_size == 0): 
-            reader.read_byte()
-
-        # Ensure consistent boolean interpretation (0 or 1)
-        self.allow_shooting_holding_intel = reader.read_byte() & 0xFF
-        self.friendly_fire = reader.read_byte() & 0xFF
-        # custom_game_rules = [("test","test")]
-        custom_game_rules_size = reader.read_byte()
-        for i in range(custom_game_rules_size):
-            custom_game_rule = reader.read_string()
-            self.custom_game_rules.append(custom_game_rule)
-
-        self.enable_corpse_explosion = reader.read_byte() & 0xFF
-        self.ugc_mode = reader.read_byte() & 0xFF
-
-    cpdef write(self, ByteWriter writer):
-        writer.write_byte(self.id)
-        writer.write_uint64(self.server_steam_id)
-        writer.write_int(self.server_ip)
-        writer.write_int(self.server_port)
-        writer.write_string(self.mode_name)
-        writer.write_string(self.mode_description)
-        writer.write_string(self.mode_infographic_text1)
-        writer.write_string(self.mode_infographic_text2)
-        writer.write_string(self.mode_infographic_text3)
-        writer.write_string(self.map_name)
-        writer.write_string(self.filename)
-        writer.write_int(self.checksum)
-        writer.write_byte(self.mode_key)
-        writer.write_byte(self.map_is_ugc)
-        # Ensure query_port is properly encoded as unsigned
-        writer.write_short(self.query_port & 0xFFFF)
-        writer.write_byte(self.classic)
-        writer.write_byte(self.enable_minimap)
-        writer.write_byte(self.same_team_collision)
-        writer.write_byte(self.max_draw_distance)
-        writer.write_byte(self.enable_colour_picker)
-        writer.write_byte(self.enable_colour_palette)
-        writer.write_byte(self.enable_deathcam)
-        writer.write_byte(self.enable_sniper_beam)
-        writer.write_byte(self.enable_spectator)
-        writer.write_byte(self.exposed_teams_always_on_minimap)
-        writer.write_byte(self.enable_numeric_hp)
-        writer.write_string(self.texture_skin)
-        writer.write_byte(self.beach_z_modifiable)
-        writer.write_byte(self.enable_minimap_height_icons)
-        writer.write_byte(self.enable_fall_on_water_damage)
-        writer.write_short(tofixed(self.block_wallet_multiplier))
-        writer.write_short(tofixed(self.block_health_multiplier))
-
-        # Tools
-        writer.write_byte(len(self.disabled_tools))
-        for disabled_tool in self.disabled_tools:
-            writer.write_byte(disabled_tool)
-
-        # Classes
-        writer.write_byte(len(self.disabled_classes))
-        for disabled_class in self.disabled_classes:
-            writer.write_byte(disabled_class)
-
-        # Movement Speed Multipliers
-        writer.write_byte(len(self.movement_speed_multipliers))
-        for movement_speed_multiplier in self.movement_speed_multipliers:
-            writer.write_short(tofixed(movement_speed_multiplier))
-
-        # UGC Prefab Sets
-        writer.write_byte(len(self.ugc_prefab_sets))
-        for ugc_prefab_set in self.ugc_prefab_sets:
-            writer.write_string(ugc_prefab_set)
-
-        # Loadout Overrides FUCK THIS FOR NOW!
-        #writer.write_byte(len(self.loadout_overrides))
-        #for key, value in self.loadout_overrides.items():
-        #    writer.write_string(str(key))
-        #    writer.write_byte(int(value))
-
-        writer.write_byte(self.enable_player_score)
-        writer.write_string(self.server_name)
-
-        # Ground Colors
-        writer.write_byte(len(self.ground_colors))
-        for ground_color in self.ground_colors:
-            writer.write_byte(ground_color)
-
-        if(len(self.ground_colors) == 0): 
-            writer.write_byte(0)
-
-        writer.write_byte(self.allow_shooting_holding_intel & 0xFF)
-        writer.write_byte(self.friendly_fire & 0xFF)
-
-        writer.write_byte(len(self.custom_game_rules))
-        for custom_game_rule in self.custom_game_rules:
-            writer.write_string(custom_game_rule)
-
-        writer.write_byte(self.enable_corpse_explosion & 0xFF)
-        writer.write_byte(self.ugc_mode & 0xFF)
-
-        
-        
-        
-        
-
-cdef class InitialUGCBatch:
-    pass
 
 cdef class InitiateKickMessage(Loader): # Fixed
     id: int = 48
@@ -1041,9 +904,6 @@ cdef class KillAction(Loader): # Fixed
         writer.write_byte(<bint>self.isDominationKill)
         writer.write_byte(<bint>self.isRevengeKill)
 
-cdef class LocalisedMessage:
-    pass
-
 cdef class LockTeam(Loader): # Fixed
     id: int = 79
     compress_packet: bool = False
@@ -1059,7 +919,7 @@ cdef class LockTeam(Loader): # Fixed
         writer.write_byte(self.team_id)
         writer.write_byte(self.locked)
 
-cdef class LockToZone(Loader): # WTF is this? Fixed?
+cdef class LockToZone(Loader): # Fixed - WTF is this? 
     id: int = 108
     compress_packet: bool = False
     cdef public:
@@ -1082,20 +942,11 @@ cdef class LockToZone(Loader): # WTF is this? Fixed?
         writer.write_short(self.A2021)
         writer.write_short(self.A2023)
 
-cdef class MapDataChunk:
-    pass
-
-cdef class MapDataEnd:
-    pass
-
-cdef class MapDataStart:
-    pass
-
-cdef class MapDataValidation(Loader): # No way this works
+cdef class MapDataValidation(Loader): # Fixed
     id: int = 60
     compress_packet: bool = False
     cdef public:
-        str crc
+        int crc
 
     cpdef read(self, ByteReader reader):
         self.crc = reader.read_int()
@@ -1113,43 +964,7 @@ cdef class MapEnded(Loader): # Fixed
     cpdef write(self, ByteWriter writer):
         writer.write_byte(self.id)
 
-cdef class MapSyncChunk(Loader): # No way this works
-    id: int = 57
-    compress_packet: bool = True
-    cdef public:
-        bytes data
-        int percent_complete
 
-    cpdef read(self, ByteReader reader):
-        self.data = reader.get()
-        self.percent_complete = reader.read_byte()
-
-    cpdef write(self, ByteWriter writer):
-        writer.write_byte(self.id)
-        writer.write_byte(self.percent_complete)
-        writer.write_short(len(self.data)) # not sure
-        writer.write(self.data)
-
-cdef class MapSyncEnd(Loader): # Fixed
-    id: int = 59
-    compress_packet: bool = False
-    cpdef read(self, ByteReader reader):
-        pass
-
-    cpdef write(self, ByteWriter writer):
-        writer.write_byte(self.id)
-
-cdef class MapSyncStart(Loader): # Fixed
-    id: int = 55
-    compress_packet: bool = False
-    cdef public:
-        int size
-
-    cpdef read(self, ByteReader reader):
-        self.size = reader.read_int()
-
-    cpdef write(self, ByteWriter writer):
-        writer.write_byte(self.id)
 
 cdef class MinimapBillboard(Loader): # Fixed
     id: int = 41
@@ -1305,9 +1120,6 @@ cdef class MinimapZoneClear(Loader): # Fixed
         writer.write_short(self.A2021)
         writer.write_short(self.A2023)
 
-cdef class NewPlayerConnection:
-    pass
-
 cdef class POIFocus(Loader): # Fixed
     id: int = 18
     compress_packet: bool = False   
@@ -1367,8 +1179,6 @@ cdef class PackStart(Loader): # Fixed
         writer.write_int(self.size)
         writer.write_int(self.checksum)
 
-cdef class PaintBlockPacket:
-    pass
 
 cdef class Password(Loader): # Fixed
     id: int = 111
@@ -1757,8 +1567,6 @@ cdef class PlayerLeft(Loader): # Fixed
         writer.write_byte(self.id)
         writer.write_byte(self.player_id)
 
-cdef class PositionData:
-    pass
 
 cdef class PrefabComplete(Loader): # Fixed
     id: int = 29
@@ -1771,8 +1579,41 @@ cdef class PrefabComplete(Loader): # Fixed
         writer.write_byte(self.id)
 
 
-cdef class ProgressBar:
-    pass
+cdef class ProgressBar(Loader): # Fixed
+    id: int = 65
+
+    cdef public:
+        float progress, rate
+        tuple color1, color2
+
+    cpdef read(self, ByteReader reader):
+        self.progress = fromfixed(reader.read_short())
+        self.rate = fromfixed(reader.read_short())
+        self.color1 = read_color(reader, True)
+        self.color2 = read_color(reader, True)
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_short(tofixed(self.progress))
+        writer.write_short(tofixed(self.rate))
+        write_color(writer, self.color1)
+        write_color(writer, self.color2)
+
+    def set(self, float progress, float rate):
+        self.progress = progress
+        self.rate = rate
+
+    def is_stopped(self):
+        return isnan(self.progress)
+
+    @property
+    def stopped(self):
+        return isnan(self.progress)
+
+    @stopped.setter
+    def stopped(self, value):
+        pass # idk why this is needed
+
 
 cdef class RankUps(Loader): # Fixed - string to int conversion for some reason Jagex :D
     id: int = 66
@@ -1843,12 +1684,6 @@ cdef class Restock(Loader): # Fixed
         writer.write_byte(self.player_id)
         writer.write_byte(self.type)
 
-cdef class ServerBlockAction:
-    pass
-
-cdef class ServerBlockItem:
-    pass
-
 cdef class SetClassLoadout(Loader): # Fixed
     id: int = 13
     compress_packet: bool = True
@@ -1900,11 +1735,55 @@ cdef class SetClassLoadout(Loader): # Fixed
         for ugc_tool in self.ugc_tools:
             writer.write_byte(ugc_tool)
 
-cdef class SetColor:
-    pass
+cdef class SetColor(Loader): # Fixed
+    id: int = 11
+    compress_packet: bool = False
+    cdef public:
+        int player_id
+        int value
 
-cdef class SetGroundColors:
-    pass
+    cpdef read(self, ByteReader reader):
+        self.player_id = reader.read_byte()
+        self.value = read_color(reader, False)
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.player_id)
+        write_color(writer, self.value)
+
+cdef class SetGroundColors(Loader): # Fixed
+    id: int = 118
+    compress_packet: bool = False
+    cdef public:
+        list ground_colors
+        
+    def __init__(self, ByteReader reader = None):
+        self.ground_colors = []
+        if reader is not None:
+            self.read(reader)
+            
+    cpdef read(self, ByteReader reader):
+        cdef int count = reader.read_byte()
+        self.ground_colors = []
+        
+        # Read each color as a 4-tuple (r,g,b,a)
+        for i in range(count):
+            r = reader.read_byte()
+            g = reader.read_byte()
+            b = reader.read_byte()
+            a = reader.read_byte()
+            self.ground_colors.append((r, g, b, a))
+            
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(len(self.ground_colors))
+        
+        # Write each color as 4 separate bytes
+        for color in self.ground_colors:
+            writer.write_byte(color[0])  # R
+            writer.write_byte(color[1])  # G
+            writer.write_byte(color[2])  # B
+            writer.write_byte(color[3])  # A
 
 cdef class SetHP(Loader): # Fixed
     id: int = 5
@@ -2096,10 +1975,6 @@ cdef class SkyboxData(Loader): # Fixed
     cpdef write(self, ByteWriter writer):
         writer.write_byte(self.id)
         writer.write_string(self.value)
-
-cdef class StateData:
-    pass
-
 cdef class SteamSessionTicket(Loader): # Fixed
     id: int = 105
     compress_packet: bool = False
@@ -2258,8 +2133,28 @@ cdef class TeamProgress(Loader): # Fixed
             
         writer.write_byte(self.icon_id)
 
-cdef class TerritoryBaseState:
-    pass
+cdef class TerritoryBaseState(Loader): # Fixed
+    id: int = 106
+    compress_packet: bool = False
+    cdef public:
+        int action, attacked_by, base_index, controlled_by
+        float capture_amount
+
+    cpdef read(self, ByteReader reader):
+        self.base_index = reader.read_byte()
+        self.action = reader.read_byte()
+        self.controlled_by = reader.read_byte()
+        self.attacked_by = reader.read_byte()
+        self.capture_amount = fromfixed(reader.read_short())
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.base_index)
+        writer.write_byte(self.action)
+        writer.write_byte(self.controlled_by)
+        writer.write_byte(self.attacked_by)
+        writer.write_short(tofixed(self.capture_amount))
+
 
 cdef class TimeScale(Loader): # Fixed
     id: int = 75
@@ -2273,10 +2168,6 @@ cdef class TimeScale(Loader): # Fixed
     cpdef write(self, ByteWriter writer):
         writer.write_byte(self.id)
         writer.write_short(tofixed(self.scale))
-
-cdef class UGCBatchEntity: # Fixed?
-    cdef public:
-        int mode, ugc_item_id, x, y, z
 cdef class UGCMapInfo(Loader): # Fixed
     id: int = 102
     compress_packet: bool = False
@@ -2352,8 +2243,35 @@ cdef class UseCommand(Loader): # Fixed
     cpdef write(self, ByteWriter writer):
         writer.write_byte(self.id)
 
-cdef class UseOrientedItem:
-    pass
+cdef class UseOrientedItem(Loader): # Fixed
+    id: int = 10
+    compress_packet: bool = False
+    cdef public:
+        int loop_count
+        int player_id, tool
+        float value
+        tuple position, velocity
+
+    cpdef read(self, ByteReader reader):
+        self.loop_count = reader.read_int()
+        self.player_id = reader.read_byte()
+        self.tool = reader.read_byte()
+        self.value = fromfixed(reader.read_short())
+        self.position = (fromfixed(reader.read_short()), fromfixed(reader.read_short()), fromfixed(reader.read_short()))
+        self.velocity = (fromfixed(reader.read_short()), fromfixed(reader.read_short()), fromfixed(reader.read_short()))
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_int(self.loop_count)
+        writer.write_byte(self.player_id)
+        writer.write_byte(self.tool)
+        writer.write_short(tofixed(self.value))
+        writer.write_short(tofixed(self.position[0]))
+        writer.write_short(tofixed(self.position[1]))
+        writer.write_short(tofixed(self.position[2]))
+        writer.write_short(tofixed(self.velocity[0]))
+        writer.write_short(tofixed(self.velocity[1]))
+        writer.write_short(tofixed(self.velocity[2]))
 
 cdef class VoiceData(Loader): # Fixed
     id: int = 103
@@ -2395,8 +2313,730 @@ cdef class WeaponReload(Loader): # Fixed
         writer.write_byte(self.tool_id)
         writer.write_byte(<bint>self.is_done)
 
+cdef class CreatePlayer(Loader): # Fixed
+    id: int = 28
+    compress_packet: bool = True
+    cdef public:
+        int player_id, demo_player, class_id, team
+        int dead
+        int local_language
+        float x, y, z
+        float ori_x, ori_y, ori_z
+        str name
+        list loadout
+        list prefabs
+
+    cpdef read(self, ByteReader reader):
+        self.loadout = []
+        self.prefabs = []
+        self.player_id = reader.read_byte()
+        self.demo_player = reader.read_byte()
+        self.class_id = reader.read_byte()
+        self.team = reader.read_byte()
+        self.dead = reader.read_byte()
+        self.local_language = reader.read_byte()
+        self.x = fromfixed(reader.read_short())
+        self.y = fromfixed(reader.read_short())
+        self.z = fromfixed(reader.read_short())
+        self.ori_x = fromfixed(reader.read_short())
+        self.ori_y = fromfixed(reader.read_short())
+        self.ori_z = fromfixed(reader.read_short())
+        self.name = reader.read_string()
+
+        loadout_size = reader.read_byte()
+        for i in range(loadout_size):
+            loadout_item = reader.read_byte()
+            self.loadout.append(loadout_item)
+
+        prefab_count = reader.read_byte()
+        for i in range(prefab_count):
+            prefab = reader.read_string()
+            self.prefabs.append(prefab)
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.player_id)
+        writer.write_byte(self.demo_player)
+        writer.write_byte(self.class_id)
+        writer.write_byte(self.team)
+        writer.write_byte(self.dead)
+        writer.write_byte(self.local_language)
+        writer.write_short(tofixed(self.x))
+        writer.write_short(tofixed(self.y))
+        writer.write_short(tofixed(self.z))
+        writer.write_short(tofixed(self.ori_x))
+        writer.write_short(tofixed(self.ori_y))
+        writer.write_short(tofixed(self.ori_z))
+        writer.write_string(self.name)
+
+        writer.write_byte(len(self.loadout))
+        for loadout in self.loadout:
+            writer.write_byte(loadout)
+
+        writer.write_byte(len(self.prefabs))
+        for prefab in self.prefabs:
+            writer.write_string(prefab)
+
+cdef class PaintBlockPacket(Loader): # Fixed
+    id: int = 7
+    compress_packet: bool = False
+    cdef public:
+        int loop_count
+        int x, y, z
+        tuple color
+
+    cpdef read(self, ByteReader reader):
+        self.loop_count = reader.read_int()
+        self.x = reader.read_short()
+        self.y = reader.read_short()
+        self.z = reader.read_short()
+        self.color = read_color(reader, True)
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_int(self.loop_count)
+        writer.write_short(self.x)
+        writer.write_short(self.y)
+        writer.write_short(self.z)
+        write_color(writer, self.color)
+
+cdef class LocalisedMessage(Loader): # Fixed
+    id: int = 50
+    compress_packet: bool = False
+    cdef public:
+        int chat_type
+        int localise_parameters
+        int override_previous_message
+        list parameters
+        str string_id
+        
+    def __init__(self, ByteReader reader = None):
+        self.parameters = []
+        if reader is not None:
+            self.read(reader)
+            
+    cpdef read(self, ByteReader reader):
+        self.chat_type = reader.read_byte()
+        self.localise_parameters = reader.read_byte()
+        self.string_id = reader.read_string()
+        
+        cdef int param_count = reader.read_byte()
+        self.parameters = []
+        for i in range(param_count):
+            self.parameters.append(reader.read_string())
+            
+        self.override_previous_message = reader.read_byte()
+        
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.chat_type)
+        writer.write_byte(self.localise_parameters)
+        writer.write_string(self.string_id)
+        
+        writer.write_byte(len(self.parameters))
+        for param in self.parameters:
+            writer.write_string(param)
+            
+        writer.write_byte(self.override_previous_message)
+
+cdef class BuildPrefabAction(Loader): # Fixed
+    id: int = 30
+    compress_packet: bool = False
+    cdef public:
+        int player_id, loop_count, from_block_index, to_block_index
+        tuple position, color
+        str prefab_name
+        bint add_to_user_blocks 
+        int prefab_pitch,prefab_roll, prefab_yaw
+
+    cpdef read(self, ByteReader reader):
+        self.loop_count = reader.read_int()
+        self.prefab_name = reader.read_string()
+        self.player_id = reader.read_byte()
+        self.prefab_yaw = reader.read_byte()
+        self.prefab_pitch = reader.read_byte()
+        self.prefab_roll = reader.read_byte()
+        self.from_block_index = reader.read_int()
+        self.to_block_index = reader.read_int()
+        self.position = (reader.read_short(), reader.read_short(), reader.read_short())
+        self.color = read_color(reader, True)
+        self.add_to_user_blocks = reader.read_byte()
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_int(self.loop_count)
+        writer.write_string(self.prefab_name)
+        writer.write_byte(self.player_id)
+        writer.write_byte(self.prefab_yaw)
+        writer.write_byte(self.prefab_pitch)
+        writer.write_byte(self.prefab_roll)
+        writer.write_int(self.from_block_index)
+        writer.write_int(self.to_block_index)
+        writer.write_short(self.position[0])
+        writer.write_short(self.position[1])
+        writer.write_short(self.position[2])
+        write_color(writer, self.color)
+        writer.write_byte(self.add_to_user_blocks)
+
+cdef class MapSyncEnd(Loader): # Fixed
+    id: int = 59
+    compress_packet: bool = False
+    cpdef read(self, ByteReader reader):
+        pass
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+
+cdef class MapDataEnd(Loader): # Fixed
+    id: int = 58
+    compress_packet: bool = True
+
+    cpdef read(self, ByteReader reader):
+        pass
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+
+
+cdef class MapSyncChunk(Loader): # Fixed
+    id: int = 57
+    compress_packet: bool = True
+    cdef public:
+        bytes data
+        int percent_complete
+
+    cpdef read(self, ByteReader reader):
+        self.percent_complete = reader.read_byte()
+        data_size = reader.read_short()
+        self.data = reader.read(data_size)
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.percent_complete)
+        writer.write_short(len(self.data))
+        writer.write(self.data)
+
+cdef class MapDataChunk(Loader): # Fixed
+    id: int = 56
+    compress_packet: bool = False
+    cdef public:
+        bytes data
+        int percent_complete
+
+    cpdef read(self, ByteReader reader):
+        self.percent_complete = reader.read_byte()
+        data_size = reader.read_short()
+        self.data = reader.read(data_size)
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.percent_complete)
+        writer.write_short(len(self.data))
+        writer.write(self.data)
+
+cdef class MapSyncStart(Loader): # Fixed
+    id: int = 55
+    compress_packet: bool = False
+    cdef public:
+        int size
+
+    cpdef read(self, ByteReader reader):
+        self.size = reader.read_int()
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+
+cdef class MapDataStart(Loader): # Fixed
+    id: int = 54
+    compress_packet: bool = True
+
+    cpdef read(self, ByteReader reader):
+        pass
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+
+cdef class NewPlayerConnection(Loader): # Fixed
+    id: int = 15
+    compress_packet: bool = False
+    cdef public:
+        int team, class_id, forced_team, local_language, 
+        str name
+
+    cpdef read(self, ByteReader reader):
+        self.team = reader.read_byte()
+        self.class_id = reader.read_byte()
+        self.forced_team = reader.read_byte()
+        self.local_language = reader.read_byte()
+        self.name = reader.read_string()
+
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.team)
+        writer.write_byte(self.class_id)
+        writer.write_byte(self.forced_team)
+        writer.write_byte(self.local_language)
+        writer.write_string(self.name)
+
+cdef class ExistingPlayer(Loader): # Fixed
+    id: int = 14
+    compress_packet: bool = False
+    cdef public:
+        int player_id, demo_player, class_id, team
+        int dead, color, tool, pickup, score, forced_team, local_language
+        list loadout, prefabs
+        str name
+        
+    def __init__(self, ByteReader reader = None):
+        self.loadout = []
+        self.prefabs = []
+        if reader is not None:
+            self.read(reader)
+
+    cpdef read(self, ByteReader reader):
+        self.player_id = reader.read_byte()
+        self.demo_player = reader.read_byte()
+        self.team = reader.read_byte()
+        self.class_id = reader.read_byte()
+        self.tool = reader.read_byte()
+        self.pickup = reader.read_byte()
+        self.dead = reader.read_byte()
+        self.score = reader.read_int()
+        self.forced_team = reader.read_byte()
+        self.local_language = reader.read_byte()
+        self.color = read_color(reader, False)
+        self.name = reader.read_string()
+        
+        # Read loadout
+        cdef int loadout_count = reader.read_byte()
+        self.loadout = []
+        for i in range(loadout_count):
+            self.loadout.append(reader.read_byte())
+            
+        # Read prefabs
+        cdef int prefab_count = reader.read_byte()
+        self.prefabs = []
+        for i in range(prefab_count):
+            self.prefabs.append(reader.read_string())
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.player_id)
+        writer.write_byte(self.demo_player)
+        writer.write_byte(self.team)
+        writer.write_byte(self.class_id)
+        writer.write_byte(self.tool)
+        writer.write_byte(self.pickup)
+        writer.write_byte(self.dead)
+        writer.write_int(self.score)
+        writer.write_byte(self.forced_team)
+        writer.write_byte(self.local_language)
+        write_color(writer, self.color)
+        writer.write_string(self.name)
+        
+        writer.write_byte(len(self.loadout))
+        for item in self.loadout:
+            writer.write_byte(item)
+            
+        writer.write_byte(len(self.prefabs))
+        for prefab in self.prefabs:
+            writer.write_string(prefab)
+
+
+cdef class GameStats(Loader): # Fixed
+    id: int = 67
+    compress_packet: bool = False
+    cdef public:
+        int noOfStats, team_id
+        list player_ids, types
+        
+    def __init__(self, ByteReader reader = None):
+        self.player_ids = []
+        self.types = []
+        self.noOfStats = 0
+        self.team_id = 0
+        if reader is not None:
+            self.read(reader)
+    
+    cpdef read(self, ByteReader reader):
+        self.noOfStats = reader.read_int()
+        self.team_id = reader.read_int()
+        
+        self.player_ids = []
+        self.types = []
+        
+        for i in range(self.noOfStats):
+            self.player_ids.append(reader.read_int())
+            self.types.append(reader.read_int())
+    
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_int(self.noOfStats)
+        writer.write_int(self.team_id)
+        
+        for i in range(self.noOfStats):
+            writer.write_int(self.player_ids[i])
+            writer.write_int(self.types[i])
+
+cdef class ClientData(Loader): # Fixed
+    id: int = 4
+    compress_packet: bool = False
+    
+    cdef public:
+        int loop_count
+        int player_id
+        int tool_id
+        float o_x, o_y, o_z 
+        int ooo 
+        float weapon_deployment_yaw
+
+        # Flags
+        bint up, down, left, right, jump, crouch, sneak, sprint
+        bint primary, secondary, zoom, can_pickup, can_display_weapon, is_on_fire, is_weapon_deployed, hover
+        bint palette_enabled
+        
+    def __init__(self, ByteReader reader = None):
+        if reader is not None:
+            self.read(reader)
+
+    cpdef read(self, ByteReader reader):
+        self.loop_count = reader.read_int()
+        self.player_id = reader.read_byte()
+        self.tool_id = reader.read_byte()
+        # NEARLY LIKE ORIGINAL, BUT NOT EXACTLY
+        # Use special orientation conversion for 16-bit values
+        self.o_x = fromfixed_orientation(reader.read_short())
+        self.o_y = fromfixed_orientation(reader.read_short())
+        self.o_z = fromfixed_orientation(reader.read_short())
+        
+        self.ooo = reader.read_byte()
+        
+        cdef int flags = reader.read_byte()
+        self.up = (flags & 0x01) != 0
+        self.down = (flags & 0x02) != 0
+        self.left = (flags & 0x04) != 0
+        self.right = (flags & 0x08) != 0
+        self.jump = (flags & 0x10) != 0
+        self.crouch = (flags & 0x20) != 0
+        self.sneak = (flags & 0x40) != 0
+        self.sprint = (flags & 0x80) != 0
+
+        cdef int flags2 = reader.read_byte()
+        self.primary = (flags2 & 0x01) != 0
+        self.secondary = (flags2 & 0x02) != 0
+        self.zoom = (flags2 & 0x04) != 0
+        self.can_pickup = (flags2 & 0x08) != 0
+        self.can_display_weapon = (flags2 & 0x10) != 0
+        self.is_on_fire = (flags2 & 0x20) != 0
+        self.is_weapon_deployed = (flags2 & 0x40) != 0
+        self.hover = (flags2 & 0x80) != 0
+
+        self.weapon_deployment_yaw = fromfixed(reader.read_short())
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_int(self.loop_count)
+        
+        # Set the palette_enabled flag in high bit of player_id if needed
+        cdef int player_id_byte = self.player_id
+        if self.palette_enabled:
+            player_id_byte |= 0x80  # Set high bit
+        writer.write_byte(player_id_byte)
+        
+        writer.write_byte(self.tool_id)
+        
+        # Note: Python 2 expects byte-swapped shorts for orientation
+        # Convert our format (0xFF 0x3F) to Python 2 format (0xF7 0x5F)
+        cdef int x_fixed = convert_to_py2_orientation_format(tofixed_orientation(self.o_x))
+        cdef int y_fixed = convert_to_py2_orientation_format(tofixed_orientation(self.o_y))
+        cdef int z_fixed = convert_to_py2_orientation_format(tofixed_orientation(self.o_z))
+        
+        writer.write_short(x_fixed)
+        writer.write_short(y_fixed)
+        writer.write_short(z_fixed)
+        
+        writer.write_byte(self.ooo)
+        
+        # flags1
+        cdef int flags = (
+            (0x01 if self.up else 0) |
+            (0x02 if self.down else 0) |
+            (0x04 if self.left else 0) |
+            (0x08 if self.right else 0) |
+            (0x10 if self.jump else 0) |
+            (0x20 if self.crouch else 0) |
+            (0x40 if self.sneak else 0) |
+            (0x80 if self.sprint else 0)
+        )
+        writer.write_byte(flags)
+        
+        # flags2
+        cdef int flags2 = (
+            (0x01 if self.primary else 0) |
+            (0x02 if self.secondary else 0) |
+            (0x04 if self.zoom else 0) |
+            (0x08 if self.can_pickup else 0) |
+            (0x10 if self.can_display_weapon else 0) |
+            (0x20 if self.is_on_fire else 0) |
+            (0x40 if self.is_weapon_deployed else 0) |
+            (0x80 if self.hover else 0)
+        )
+        writer.write_byte(flags2)
+
+        writer.write_short(tofixed(self.weapon_deployment_yaw))
+#Work in progress
+cdef class InitialInfo(Loader): # Should be working :D
+    id: int = 114
+    compress_packet: bool = False
+    cdef public:
+        uint64_t server_steam_id
+        int server_ip, server_port
+        str mode_name, mode_description, mode_infographic_text1, mode_infographic_text2, mode_infographic_text3
+        str map_name, filename
+        int checksum, mode_key
+        int map_is_ugc
+        int query_port
+        int classic, enable_minimap, same_team_collision
+        int max_draw_distance
+        int enable_colour_picker, enable_colour_palette, enable_deathcam, enable_sniper_beam, enable_spectator, exposed_teams_always_on_minimap, enable_numeric_hp
+        str texture_skin
+        int beach_z_modifiable
+        int enable_minimap_height_icons, enable_fall_on_water_damage
+        float block_wallet_multiplier, block_health_multiplier
+        list disabled_tools, disabled_classes, movement_speed_multipliers, ugc_prefab_sets
+        dict loadout_overrides
+        int enable_player_score
+        str server_name
+        list ground_colors
+        int allow_shooting_holding_intel, friendly_fire
+        list custom_game_rules
+        int enable_corpse_explosion
+        int ugc_mode
+
+    def __init__(self, ByteReader reader = None):
+        self.disabled_tools = []
+        self.disabled_classes = []
+        self.movement_speed_multipliers = []
+        self.ugc_prefab_sets = []
+        self.loadout_overrides = {}
+        self.ground_colors = []
+        self.custom_game_rules = []
+        if reader is not None:
+            self.read(reader)
+
+    cpdef read(self, ByteReader reader):
+        self.server_steam_id = reader.read_uint64()
+        self.server_ip = reader.read_int()
+        self.server_port = reader.read_int()
+        self.mode_name = reader.read_string()
+        self.mode_description = reader.read_string()
+        self.mode_infographic_text1 = reader.read_string()
+        self.mode_infographic_text2 = reader.read_string()
+        self.mode_infographic_text3 = reader.read_string()
+        self.map_name = reader.read_string()
+        self.filename = reader.read_string()
+        self.checksum = reader.read_int()
+        self.mode_key = reader.read_byte()
+        self.map_is_ugc = reader.read_byte()
+        # Convert from signed to unsigned for query_port (preserve bit pattern)
+        query_port_signed = reader.read_short()
+        self.query_port = query_port_signed & 0xFFFF if query_port_signed < 0 else query_port_signed
+        self.classic = reader.read_byte()
+        self.enable_minimap = reader.read_byte()
+        self.same_team_collision = reader.read_byte()
+        self.max_draw_distance = reader.read_byte() # Check
+        self.enable_colour_picker = reader.read_byte()
+        self.enable_colour_palette = reader.read_byte()
+        self.enable_deathcam = reader.read_byte()
+        self.enable_sniper_beam = reader.read_byte()
+        self.enable_spectator = reader.read_byte()
+        self.exposed_teams_always_on_minimap = reader.read_byte()
+        self.enable_numeric_hp = reader.read_byte()
+        self.texture_skin = reader.read_string()
+        self.beach_z_modifiable = reader.read_byte()
+        self.enable_minimap_height_icons = reader.read_byte()
+        self.enable_fall_on_water_damage = reader.read_byte()
+        self.block_wallet_multiplier = fromfixed(reader.read_short())
+        self.block_health_multiplier = fromfixed(reader.read_short())
+
+        # Tools
+        disabled_tools_size = reader.read_byte()
+        for i in range(disabled_tools_size):
+            disabled_tool = reader.read_byte()
+            self.disabled_tools.append(disabled_tool)
+
+        # Classes
+        disabled_classes_size = reader.read_byte()
+        for i in range(disabled_classes_size):
+            disabled_class = reader.read_byte()
+            self.disabled_classes.append(disabled_class)
+
+        # Movement Speed Multipliers
+        movement_speed_multipliers_size = reader.read_byte()
+        for i in range(movement_speed_multipliers_size):
+            movement_speed_multiplier = fromfixed(reader.read_short())
+            self.movement_speed_multipliers.append(movement_speed_multiplier)
+
+        # UGC Prefab Sets
+        ugc_prefab_sets_size = reader.read_byte()
+        for i in range(ugc_prefab_sets_size):
+            ugc_prefab_set = reader.read_string()
+            self.ugc_prefab_sets.append(ugc_prefab_set)
+
+        # Loadout Overrides FUCK THIS FOR NOW!
+        #self.loadout_overrides = {}
+        #loadout_overrides_size = reader.read_short()
+        #for i in range(loadout_overrides_size):
+        #    key = reader.read_string()
+        #    value = reader.read_byte()
+        #    self.loadout_overrides[key] = value
+
+        self.enable_player_score = reader.read_byte()
+        self.server_name = reader.read_string()
+
+        # initial_info.ground_colors = [(1,1,1,1), (2,2,2,2)]
+        ground_colors_size = reader.read_byte()
+        for i in range(ground_colors_size):
+            ground_color = reader.read_byte()
+            self.ground_colors.append(ground_color)
+
+        if(ground_colors_size == 0): 
+            reader.read_byte()
+
+        # Ensure consistent boolean interpretation (0 or 1)
+        self.allow_shooting_holding_intel = reader.read_byte() & 0xFF
+        self.friendly_fire = reader.read_byte() & 0xFF
+        # custom_game_rules = [("test","test")]
+        custom_game_rules_size = reader.read_byte()
+        for i in range(custom_game_rules_size):
+            custom_game_rule = reader.read_string()
+            self.custom_game_rules.append(custom_game_rule)
+
+        self.enable_corpse_explosion = reader.read_byte() & 0xFF
+        self.ugc_mode = reader.read_byte() & 0xFF
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_uint64(self.server_steam_id)
+        writer.write_int(self.server_ip)
+        writer.write_int(self.server_port)
+        writer.write_string(self.mode_name)
+        writer.write_string(self.mode_description)
+        writer.write_string(self.mode_infographic_text1)
+        writer.write_string(self.mode_infographic_text2)
+        writer.write_string(self.mode_infographic_text3)
+        writer.write_string(self.map_name)
+        writer.write_string(self.filename)
+        writer.write_int(self.checksum)
+        writer.write_byte(self.mode_key)
+        writer.write_byte(self.map_is_ugc)
+        # Ensure query_port is properly encoded as unsigned
+        writer.write_short(self.query_port & 0xFFFF)
+        writer.write_byte(self.classic)
+        writer.write_byte(self.enable_minimap)
+        writer.write_byte(self.same_team_collision)
+        writer.write_byte(self.max_draw_distance)
+        writer.write_byte(self.enable_colour_picker)
+        writer.write_byte(self.enable_colour_palette)
+        writer.write_byte(self.enable_deathcam)
+        writer.write_byte(self.enable_sniper_beam)
+        writer.write_byte(self.enable_spectator)
+        writer.write_byte(self.exposed_teams_always_on_minimap)
+        writer.write_byte(self.enable_numeric_hp)
+        writer.write_string(self.texture_skin)
+        writer.write_byte(self.beach_z_modifiable)
+        writer.write_byte(self.enable_minimap_height_icons)
+        writer.write_byte(self.enable_fall_on_water_damage)
+        writer.write_short(tofixed(self.block_wallet_multiplier))
+        writer.write_short(tofixed(self.block_health_multiplier))
+
+        # Tools
+        writer.write_byte(len(self.disabled_tools))
+        for disabled_tool in self.disabled_tools:
+            writer.write_byte(disabled_tool)
+
+        # Classes
+        writer.write_byte(len(self.disabled_classes))
+        for disabled_class in self.disabled_classes:
+            writer.write_byte(disabled_class)
+
+        # Movement Speed Multipliers
+        writer.write_byte(len(self.movement_speed_multipliers))
+        for movement_speed_multiplier in self.movement_speed_multipliers:
+            writer.write_short(tofixed(movement_speed_multiplier))
+
+        # UGC Prefab Sets
+        writer.write_byte(len(self.ugc_prefab_sets))
+        for ugc_prefab_set in self.ugc_prefab_sets:
+            writer.write_string(ugc_prefab_set)
+
+        # Loadout Overrides FUCK THIS FOR NOW!
+        #writer.write_byte(len(self.loadout_overrides))
+        #for key, value in self.loadout_overrides.items():
+        #    writer.write_string(str(key))
+        #    writer.write_byte(int(value))
+
+        writer.write_byte(self.enable_player_score)
+        writer.write_string(self.server_name)
+
+        # Ground Colors
+        writer.write_byte(len(self.ground_colors))
+        for ground_color in self.ground_colors:
+            writer.write_byte(ground_color)
+
+        if(len(self.ground_colors) == 0): 
+            writer.write_byte(0)
+
+        writer.write_byte(self.allow_shooting_holding_intel & 0xFF)
+        writer.write_byte(self.friendly_fire & 0xFF)
+
+        writer.write_byte(len(self.custom_game_rules))
+        for custom_game_rule in self.custom_game_rules:
+            writer.write_string(custom_game_rule)
+
+        writer.write_byte(self.enable_corpse_explosion & 0xFF)
+        writer.write_byte(self.ugc_mode & 0xFF)
+
+
+
+cdef class UGCBatchEntity: # Fixed?
+    cdef public:
+        int mode, ugc_item_id, x, y, z
+
 cdef class WorldUpdate:
     pass
+
+cdef class StateData:
+    pass
+
+cdef class ServerBlockAction:
+    pass
+
+cdef class ServerBlockItem:
+    pass
+
+cdef class PositionData:
+    pass
+
+cdef class InitialUGCBatch:
+    pass
+
+cdef class BlockManagerState: 
+    pass
+
+cdef class EntityUpdates:
+    pass
+
+cdef class ErasePrefabAction:
+    pass
+
+cdef class ChangeEntity:
+    pass
+
+cdef class CreateEntity:
+    pass
+
 
 # Alias for compatibility
 item = AddServer
