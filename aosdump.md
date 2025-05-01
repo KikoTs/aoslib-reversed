@@ -1,4 +1,5 @@
 # This is the project structure for /aosdump folder
+## VIEW ME AS RAW (FOR SOME REASON :D)
 :Note for easier u can just paste the game in the folder :D
 
 aosdump
