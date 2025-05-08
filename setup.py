@@ -12,6 +12,11 @@ extensions = [
         "shared.packet",
         ["shared/packet.pyx"],
         include_dirs=[os.path.join(os.path.dirname(__file__), "shared")],
+    ),
+    Extension(
+        "shared.glm",
+        ["shared/glm.pyx"],
+        include_dirs=[os.path.join(os.path.dirname(__file__), "shared")],
     )
 ]
 
