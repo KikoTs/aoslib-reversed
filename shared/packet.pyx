@@ -188,14 +188,6 @@ def load_server_packet():
 def load_master_packet():
     """Placeholder for master packet loader function"""
     return None
-
-# Base classes
-cdef class Entity:
-    pass
-
-cdef class PacketLoader:
-    pass
-
 @cython.freelist(512)
 cdef class Loader:
     id: int = -1
@@ -2732,7 +2724,7 @@ cdef class ClientData(Loader): # Fixed
         self.is_weapon_deployed = (flags2 & 0x40) != 0
         self.hover = (flags2 & 0x80) != 0
 
-        self.weapon_deployment_yaw = fromfixed(reader.read_short())
+        self.weapon_deployment_yaw = fromfixed_orientation(reader.read_short())
 
     cpdef write(self, ByteWriter writer):
         writer.write_byte(self.id)
@@ -2784,7 +2776,7 @@ cdef class ClientData(Loader): # Fixed
         )
         writer.write_byte(flags2)
 
-        writer.write_short(tofixed(self.weapon_deployment_yaw))
+        writer.write_short(convert_to_py2_orientation_format(tofixed_orientation(self.weapon_deployment_yaw)))
 #Work in progress
 cdef class InitialInfo(Loader): # Should be working :D
     id: int = 114
@@ -3007,8 +2999,284 @@ cdef class UGCBatchEntity: # Fixed?
 cdef class WorldUpdate:
     pass
 
-cdef class StateData:
-    pass
+cdef class StateData(Loader): # Fixed?
+    id: int = 45
+    compress_packet: bool = False
+    cdef public:
+        int player_id
+        tuple fog_color, team1_color, team2_color, light_color, back_light_color, ambient_light_color
+        tuple light_direction, back_light_direction
+        float gravity, time_scale, ambient_light_intensity
+        int score_limit, mode_type, team_headcount_type
+        int team1_score, team2_score
+        bint team1_locked, team2_locked, lock_spectator_swap, lock_team_swap
+        bint team1_can_see_team2, team2_can_see_team1
+        bint team1_show_score, team1_show_max_score, team2_show_score, team2_show_max_score
+        bint team1_locked_class, team1_locked_score, team2_locked_class, team2_locked_score
+        bint team1_infinite_blocks, team2_infinite_blocks
+        int has_map_ended
+        list team1_classes, team2_classes
+        list prefabs, screenshot_cameras_points, screenshot_cameras_rotations
+        str team1_name, team2_name
+        list entities
+        
+    def __init__(self, ByteReader reader = None):
+        self.fog_color = (0, 0, 0)
+        self.team1_color = (0, 0, 0)
+        self.team2_color = (0, 0, 0)
+        self.light_color = (0, 0, 0)
+        self.back_light_color = (0, 0, 0)
+        self.ambient_light_color = (0, 0, 0)
+        self.light_direction = (0, 0, 0)
+        self.back_light_direction = (0, 0, 0)
+        self.team1_classes = []
+        self.team2_classes = []
+        self.prefabs = []
+        self.screenshot_cameras_points = []
+        self.screenshot_cameras_rotations = []
+        self.entities = []
+        
+        # Initialize boolean fields
+        self.team1_locked = False
+        self.team2_locked = False
+        self.lock_spectator_swap = False
+        self.lock_team_swap = False
+        self.team1_can_see_team2 = False
+        self.team2_can_see_team1 = False
+        self.team1_show_score = False
+        self.team1_show_max_score = False
+        self.team2_show_score = False
+        self.team2_show_max_score = False
+        self.team1_locked_class = False
+        self.team1_locked_score = False
+        self.team2_locked_class = False
+        self.team2_locked_score = False
+        self.team1_infinite_blocks = False
+        self.team2_infinite_blocks = False
+        
+        # Initialize numeric fields
+        self.has_map_ended = 0
+        self.gravity = 0.0
+        self.time_scale = 1.0
+        self.ambient_light_intensity = 0.0
+        self.score_limit = 0
+        self.mode_type = 0
+        self.team_headcount_type = 0
+        self.team1_score = 0
+        self.team2_score = 0
+        
+        # Initialize string fields
+        self.team1_name = ""
+        self.team2_name = ""
+        
+        if reader is not None:
+            self.read(reader)
+
+    cpdef read(self, ByteReader reader):
+        self.player_id = reader.read_byte()
+        self.fog_color = read_color(reader, True)
+        self.gravity = fromfixed(reader.read_short())
+        
+        self.light_color = read_color(reader, True)
+        
+        # Read light direction
+        light_x = fromfixed(reader.read_short())
+        light_y = fromfixed(reader.read_short())
+        light_z = fromfixed(reader.read_short())
+        self.light_direction = (light_x, light_y, light_z)
+        
+        self.back_light_color = read_color(reader, True)
+        
+        # Read back light direction
+        back_light_x = fromfixed(reader.read_short())
+        back_light_y = fromfixed(reader.read_short())
+        back_light_z = fromfixed(reader.read_short())
+        self.back_light_direction = (back_light_x, back_light_y, back_light_z)
+        
+        self.ambient_light_color = read_color(reader, True)
+        self.ambient_light_intensity = fromfixed(reader.read_short())
+        self.time_scale = fromfixed(reader.read_short())
+        
+        self.score_limit = reader.read_byte()
+        self.mode_type = reader.read_byte()
+        self.team_headcount_type = reader.read_byte()
+        
+        # Team 1
+        self.team1_name = reader.read_string()
+        self.team1_color = read_color(reader, True)
+        self.team1_score = reader.read_int()
+        self.team1_locked = reader.read_byte()
+        
+        # Team 1 classes
+        team1_class_count = reader.read_byte()
+        self.team1_classes = []
+        for i in range(team1_class_count):
+            self.team1_classes.append(reader.read_byte())
+            
+        # Team 2
+        self.team2_name = reader.read_string()
+        self.team2_color = read_color(reader, True)
+        self.team2_score = reader.read_int()
+        self.team2_locked = reader.read_byte()
+        
+        # Team 2 classes
+        team2_class_count = reader.read_byte()
+        self.team2_classes = []
+        for i in range(team2_class_count):
+            self.team2_classes.append(reader.read_byte())
+        
+        # Additional team flags
+        self.lock_team_swap = reader.read_byte()    
+        self.lock_spectator_swap = reader.read_byte()
+        self.team1_can_see_team2 = reader.read_byte()
+        self.team2_can_see_team1 = reader.read_byte()
+        
+        # Team flags
+        self.team1_show_score = reader.read_byte()
+        self.team1_show_max_score = reader.read_byte()
+        self.team2_show_score = reader.read_byte()
+        self.team2_show_max_score = reader.read_byte()
+        self.team1_locked_class = reader.read_byte()
+        self.team1_locked_score = reader.read_byte()
+        self.team2_locked_class = reader.read_byte()
+        self.team2_locked_score = reader.read_byte()
+        self.team1_infinite_blocks = reader.read_byte()
+        self.team2_infinite_blocks = reader.read_byte()
+        
+        # Map ended
+        self.has_map_ended = reader.read_byte()
+        
+        # Prefabs
+        prefab_count = reader.read_byte()
+        self.prefabs = []
+        for i in range(prefab_count):
+            self.prefabs.append(reader.read_string())
+            
+        # Entities
+        entity_count = reader.read_byte()
+        self.entities = []
+        for i in range(entity_count):
+            # We need a way to instantiate the correct entity type
+            # For now, skip this part as we would need entity factories
+            pass
+            
+        # Screenshot cameras points
+        point_count = reader.read_byte()
+        self.screenshot_cameras_points = []
+        for i in range(point_count):
+            x = fromfixed(reader.read_short())
+            y = fromfixed(reader.read_short())
+            z = fromfixed(reader.read_short())
+            self.screenshot_cameras_points.append((x, y, z))
+            
+        # Screenshot cameras rotations
+        rotation_count = reader.read_byte()
+        self.screenshot_cameras_rotations = []
+        for i in range(rotation_count):
+            x = fromfixed(reader.read_short())
+            y = fromfixed(reader.read_short())
+            z = fromfixed(reader.read_short())
+            self.screenshot_cameras_rotations.append((x, y, z))
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_byte(self.player_id) # player id
+        write_color(writer, self.fog_color) # fog color
+        writer.write_short(tofixed(self.gravity)) # gravity
+
+        write_color(writer, self.light_color) # light color
+
+        writer.write_short(tofixed(self.light_direction[0]))
+        writer.write_short(tofixed(self.light_direction[1]))
+        writer.write_short(tofixed(self.light_direction[2]))
+
+        write_color(writer, self.back_light_color) # back light color
+
+        writer.write_short(tofixed(self.back_light_direction[0]))
+        writer.write_short(tofixed(self.back_light_direction[1]))
+        writer.write_short(tofixed(self.back_light_direction[2]))
+
+        write_color(writer, self.ambient_light_color) # ambient light color
+
+        writer.write_short(tofixed(self.ambient_light_intensity)) # ambient light intensity
+
+        writer.write_short(tofixed(self.time_scale)) # time scale
+
+        writer.write_byte(self.score_limit) # score limit
+        writer.write_byte(self.mode_type) # mode type
+        writer.write_byte(self.team_headcount_type) # team headcount type
+
+        # Team 1
+        writer.write_string(self.team1_name) # team 1 name
+        write_color(writer, self.team1_color) # team 1 color
+        writer.write_int(self.team1_score)
+        writer.write_byte(self.team1_locked) # team 1 locked
+
+        writer.write_byte(len(self.team1_classes)) # team 1 classes length
+        for class_id in self.team1_classes:
+            writer.write_byte(class_id) # team 1 classes
+
+        # Team 2
+        writer.write_string(self.team2_name) # team 2 name
+        write_color(writer, self.team2_color) # team 2 color
+        writer.write_int(self.team2_score)
+        writer.write_byte(self.team2_locked) # team 2 locked
+        
+        writer.write_byte(len(self.team2_classes)) # team 2 classes length
+        for class_id in self.team2_classes:
+            writer.write_byte(class_id) # team 2 classes
+        
+        # Additional team flags
+        writer.write_byte(self.lock_team_swap)
+        writer.write_byte(self.lock_spectator_swap) # Lock spectator swap
+        writer.write_byte(self.team1_can_see_team2)
+        writer.write_byte(self.team2_can_see_team1)
+        
+        # Team flags
+        writer.write_byte(self.team1_show_score)
+        writer.write_byte(self.team1_show_max_score)
+        writer.write_byte(self.team2_show_score)
+        writer.write_byte(self.team2_show_max_score)
+        writer.write_byte(self.team1_locked_class)
+        writer.write_byte(self.team1_locked_score)
+        writer.write_byte(self.team2_locked_class)
+        writer.write_byte(self.team2_locked_score)
+        writer.write_byte(self.team1_infinite_blocks)
+        writer.write_byte(self.team2_infinite_blocks)
+        
+        # Map ended
+        writer.write_byte(self.has_map_ended)
+
+        # Prefabs
+        writer.write_byte(len(self.prefabs)) # Prefabs length
+        for prefab in self.prefabs:
+            writer.write_string(prefab) # Prefabs
+
+        # Entities
+        writer.write_byte(len(self.entities)) # Entities length
+        for ent in self.entities:
+            ent.write(writer) # Entities
+
+        # Screenshot cameras points (list of 3 floats) 
+        writer.write_byte(len(self.screenshot_cameras_points)) # Screenshot cameras points length
+        for point in self.screenshot_cameras_points:
+            writer.write_short(tofixed(point[0])) # Screenshot cameras points
+            writer.write_short(tofixed(point[1])) # Screenshot cameras points
+            writer.write_short(tofixed(point[2])) # Screenshot cameras points
+
+        # Screenshot cameras rotations (list of 3 floats)
+        writer.write_byte(len(self.screenshot_cameras_rotations)) # Screenshot cameras rotations length
+        for rotation in self.screenshot_cameras_rotations:
+            writer.write_short(tofixed(rotation[0])) # Screenshot cameras rotations
+            writer.write_short(tofixed(rotation[1])) # Screenshot cameras rotations
+            writer.write_short(tofixed(rotation[2])) # Screenshot cameras rotations
+            
+    def set_entities(self, entities): 
+        pass
+        #for ent in entities:
+        #    ent.state = constants.TEAM.NEUTRAL.value
+        #    ent.carrier = -1
+        #    self.entities.append(ent)
 
 cdef class ServerBlockAction:
     pass
@@ -3035,6 +3303,14 @@ cdef class ChangeEntity:
     pass
 
 cdef class CreateEntity:
+    pass
+
+
+# Base classes
+cdef class Entity:
+    pass
+
+cdef class PacketLoader:
     pass
 
 

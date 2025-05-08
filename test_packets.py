@@ -943,8 +943,54 @@ def test_client_data(): # 1:1
     return current_packet
 
 
+def test_state_data(): # 1:1
+    current_packet = packet.StateData()
+    current_packet.ambient_light_color = (1,2,3)
+    current_packet.ambient_light_intensity = 4.0
+    current_packet.back_light_color = (5,6,7)
+    current_packet.back_light_direction = (8,9,10)
+    current_packet.entities = []
+    current_packet.fog_color = (14,15,16)
+    current_packet.gravity = 2.0
+    current_packet.has_map_ended = 3
+    current_packet.light_color = (17,18,19)
+    current_packet.light_direction = (20,21,22)
+    current_packet.lock_spectator_swap = 23
+    current_packet.lock_team_swap = 24
+    current_packet.mode_type = 25
+    current_packet.player_id = 26
+    current_packet.prefabs = ["test1", "test2", "test3"]
+    current_packet.score_limit = 27
+    current_packet.screenshot_cameras_points = [(28,29,30)]
+    current_packet.screenshot_cameras_rotations = [(31,32,33)]
+    current_packet.team1_can_see_team2 = 34
+    current_packet.team1_classes = [1,2,3]
+    current_packet.team1_color = (38,39,40)
+    current_packet.team1_infinite_blocks = 41
+    current_packet.team1_locked = 42
+    current_packet.team1_locked_class = 43
+    current_packet.team1_locked_score = 44
+    current_packet.team1_name = "test"
+    current_packet.team1_score = 45
+    current_packet.team1_show_max_score = 46
+    current_packet.team1_show_score = 47
+    current_packet.team2_can_see_team1 = 48
+    current_packet.team2_classes = [1,2,3]
+    current_packet.team2_color = (52,53,54)
+    current_packet.team2_infinite_blocks = 55
+    current_packet.team2_locked = 56
+    current_packet.team2_locked_class = 57
+    current_packet.team2_locked_score = 58
+    current_packet.team2_name = "test"
+    current_packet.team2_score = 59
+    current_packet.team2_show_max_score = 60
+    current_packet.team2_show_score = 61
+    current_packet.team_headcount_type = 62
+    current_packet.time_scale = 1.0
+    return current_packet
+
 def test_packets():
-    current_packet = test_client_data()
+    current_packet = test_state_data()
 
     writer = ByteWriter()
     current_packet.write(writer)
@@ -957,7 +1003,7 @@ def test_packets():
     if len(writer_data) > 1:
         writer_data = writer_data[1:]  # Skip the first byte (packet ID)
     reader = ByteReader(writer_data)
-    current_packet = packet.ClientData(reader)
+    current_packet = packet.StateData(reader)
     print("Raw object output:")
     
     # Dump all attributes of the object
