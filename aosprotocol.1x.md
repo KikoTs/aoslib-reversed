@@ -56,6 +56,7 @@ This page documents the Ace of Spades 1.x protocol.
   - [Chat Message (49)](#chat-message)
   - [Localised Message (50)](#localised-message)
   - [SkyBox Data (51)](#skybox-data)
+  - [Show Game Stats (53)](#show-game-stats)
   - [Map Data Start (54)](#map-data-start)
   - [Map Sync Start (55)](#map-sync-start)
   - [Map Data Chunk (56)](#map-data-chunk)
@@ -122,7 +123,6 @@ This page documents the Ace of Spades 1.x protocol.
   - [Position Data (116) (work in progress)](#position-data)
   - [Team Progress (117)](#team-progress)
   - [Set Ground Colors (118)](#set-ground-colors)
-  - [Show Game Stats (118)](#show-game-stats)
 
 ## Data Types
 
@@ -824,6 +824,14 @@ No fields for this packet.
 | Field Name | Field Type | Notes |
 |------------|------------|-------|
 | value | string | Skybox configuration data |
+
+### Show Game Stats
+| Property | Value |
+|-----------|-------|
+| Packet ID | 118 |
+| Compression | No |
+
+No fields for this packet.
 
 ### Map Data Start
 | Property | Value |
@@ -1610,13 +1618,6 @@ No fields for this packet.
 |------------|------------|-------|
 | ground_colors | list[(byte,byte,byte,byte)] | List of RGBA ground colors |
 
-### Show Game Stats
-| Property | Value |
-|-----------|-------|
-| Packet ID | 118 |
-| Compression | No |
-
-No fields for this packet.
 
 ## Disclaimer
 

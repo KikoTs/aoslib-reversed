@@ -1930,7 +1930,7 @@ cdef class ShootResponse(Loader): # Fixed
         writer.write_short(tofixed(self.position_z))
 
 cdef class ShowGameStats(Loader): # Fixed
-    id: int = 118
+    id: int = 53
     compress_packet: bool = False
 
     cpdef read(self, ByteReader reader):
