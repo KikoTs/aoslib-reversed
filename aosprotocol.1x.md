@@ -690,12 +690,12 @@ No fields for this packet.
 |------------|------------|-------|
 | key | byte | Unique key for this zone |
 | color | color | RGB color of the zone |
-| A2018 | short | X min coordinate |
-| A2020 | short | Y min coordinate |
-| A2022 | short | Z min coordinate |
-| A2019 | short | X max coordinate |
-| A2021 | short | Y max coordinate |
-| A2023 | short | Z max coordinate |
+| A2018 | short | X min coordinate (left boundary) |
+| A2020 | short | Y min coordinate (front boundary) |
+| A2022 | short | Z min coordinate (bottom boundary) |
+| A2019 | short | X max coordinate (right boundary) |
+| A2021 | short | Y max coordinate (back boundary) |
+| A2023 | short | Z max coordinate (top boundary) |
 | icon_scale | fixed | Scale of the zone icon |
 | icon_id | byte | ID of the icon to display |
 | locked_in_zone | byte | Whether player is locked in this zone |
@@ -703,12 +703,17 @@ No fields for this packet.
 ### Minimap Zone Clear
 | Property | Value |
 |-----------|-------|
-| A2018 | short | X min coordinate |
-| A2020 | short | Y min coordinate |
-| A2022 | short | Z min coordinate |
-| A2019 | short | X max coordinate |
-| A2021 | short | Y max coordinate |
-| A2023 | short | Z max coordinate |
+| Packet ID | 44 |
+| Compression | No |
+
+| Field Name | Field Type | Notes |
+|------------|------------|-------|
+| A2018 | short | X min coordinate (left boundary) |
+| A2020 | short | Y min coordinate (front boundary) |
+| A2022 | short | Z min coordinate (bottom boundary) |
+| A2019 | short | X max coordinate (right boundary) |
+| A2021 | short | Y max coordinate (back boundary) |
+| A2023 | short | Z max coordinate (top boundary) |
 
 ### State Data
 | Property | Value |
@@ -1454,12 +1459,12 @@ No fields for this packet.
 
 | Field Name | Field Type | Notes |
 |------------|------------|-------|
-| A2018 | short | X min coordinate |
-| A2020 | short | Y min coordinate |
-| A2022 | short | Z min coordinate |
-| A2019 | short | X max coordinate |
-| A2021 | short | Y max coordinate |
-| A2023 | short | Z max coordinate |
+| A2018 | short | X min coordinate (left boundary) |
+| A2020 | short | Y min coordinate (front boundary) |
+| A2022 | short | Z min coordinate (bottom boundary) |
+| A2019 | short | X max coordinate (right boundary) |
+| A2021 | short | Y max coordinate (back boundary) |
+| A2023 | short | Z max coordinate (top boundary) |
 
 ### Generic Vote Message
 | Property | Value |
