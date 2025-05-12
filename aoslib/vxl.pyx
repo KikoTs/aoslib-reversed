@@ -1,18 +1,20 @@
 cdef class VXL:
-    cdef:
-        int _state
-        bytes _data
-        int _data_size
-        int _detail_level
+    cdef MapData * map
 
-    def __init__(self, int _state, bytes _data, int _data_size, int _detail_level):
-        self._state = _state
-        self._data = _data
-        self._data_size = _data_size
-        self._detail_level = _detail_level
-
-    
-    
+    cpdef get_solid(self, int x, int y, int z)
+    cpdef get_color(self, int x, int y, int z)
+    cpdef tuple get_random_point(self, int x1, int y1, int x2, int y2)
+    cpdef int get_z(self, int x, int y, int start = ?)
+    cpdef int get_height(self, int x, int y)
+    cpdef tuple get_safe_coords(self, int x, int y, int z)
+    cpdef bint has_neighbors(self, int x, int y, int z)
+    cpdef bint is_surface(self, int x, int y, int z)
+    cpdef list get_neighbors(self, int x, int y, int z)
+    cpdef int check_node(self, int x, int y, int z, bint destroy = ?)
+    cpdef bint build_point(self, int x, int y, int z, tuple color)
+    cpdef bint set_column_fast(self, int x, int y, int start_z,
+        int end_z, int end_color_z, int color)
+    cpdef update_shadows(self)
     
     
     
