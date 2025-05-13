@@ -15,8 +15,9 @@ extensions = [
     ),
     Extension(
         "shared.glm",
-        ["shared/glm.pyx"],
+        ["shared/glm.pyx", "shared/glm_c.cpp"],
         include_dirs=[os.path.join(os.path.dirname(__file__), "shared")],
+        language="c++",
     )
 ]
 

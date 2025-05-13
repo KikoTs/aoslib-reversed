@@ -12,21 +12,14 @@ include/
 *.cpp
 *.log
 *.c
+*.so.c
+!*_c.cpp
 
-!acelib/bytes_c.cpp
-!acelib/glm_c.cpp
-!acelib/vxl_c.cpp
-!acelib/world_c.cpp
 !original_func/*
 !original_func/shared/*
 !original_func/aoslib/*
 
 aosdump/*
-
-!acesteam/Challange/shared/glm.pyd
-!acesteam/Challange/shared/steam.pyd
-!acesteam/Challange/shared/packet.pyd
-!acesteam/Challange/shared/common.pyd
 
 old/
 test/

@@ -2724,7 +2724,7 @@ cdef class ClientData(Loader): # Fixed
         self.is_weapon_deployed = (flags2 & 0x40) != 0
         self.hover = (flags2 & 0x80) != 0
 
-        self.weapon_deployment_yaw = fromfixed_orientation(reader.read_short())
+        self.weapon_deployment_yaw = fromfixed(reader.read_short())
 
     cpdef write(self, ByteWriter writer):
         writer.write_byte(self.id)
@@ -2776,7 +2776,7 @@ cdef class ClientData(Loader): # Fixed
         )
         writer.write_byte(flags2)
 
-        writer.write_short(convert_to_py2_orientation_format(tofixed_orientation(self.weapon_deployment_yaw)))
+        writer.write_short(tofixed(self.weapon_deployment_yaw))
 #Work in progress
 cdef class InitialInfo(Loader): # Should be working :D
     id: int = 114
@@ -2995,9 +2995,6 @@ cdef class InitialInfo(Loader): # Should be working :D
 cdef class UGCBatchEntity: # Fixed?
     cdef public:
         int mode, ugc_item_id, x, y, z
-
-cdef class WorldUpdate:
-    pass
 
 cdef class StateData(Loader): # Fixed?
     id: int = 45
@@ -3278,35 +3275,57 @@ cdef class StateData(Loader): # Fixed?
         #    ent.carrier = -1
         #    self.entities.append(ent)
 
-cdef class ServerBlockAction:
+cdef class WorldUpdate(Loader):
+    id: int = 2
+    compress_packet: bool = False
     pass
 
-cdef class ServerBlockItem:
+cdef class ServerBlockAction(Loader):
+    id: int = 39
+    compress_packet: bool = False
     pass
 
-cdef class PositionData:
+
+cdef class PositionData(Loader):
+    id: int = 116
+    compress_packet: bool = False
     pass
 
-cdef class InitialUGCBatch:
+cdef class InitialUGCBatch(Loader):
+    id: int = 98
+    compress_packet: bool = False
     pass
 
-cdef class BlockManagerState: 
+cdef class BlockManagerState(Loader): 
+    id: int = 38
+    compress_packet: bool = False
     pass
 
-cdef class EntityUpdates:
+cdef class EntityUpdates(Loader):
+    id: int = 3
+    compress_packet: bool = False
     pass
 
-cdef class ErasePrefabAction:
+cdef class ErasePrefabAction(Loader):
+    id: int = 31
+    compress_packet: bool = False
     pass
 
-cdef class ChangeEntity:
+cdef class ChangeEntity(Loader):
+    id: int = 16
+    compress_packet: bool = False
     pass
 
-cdef class CreateEntity:
+cdef class CreateEntity(Loader):
+    id: int = 21
+    compress_packet: bool = False
     pass
 
 
 # Base classes
+cdef class ServerBlockItem:
+    pass
+
 cdef class Entity:
     pass
 

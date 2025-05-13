@@ -943,7 +943,7 @@ def test_client_data(): # 1:1
     return current_packet
 
 
-def test_state_data(): # 1:1
+def test_state_data(): # not 1:1
     current_packet = packet.StateData()
     current_packet.ambient_light_color = (1,2,3)
     current_packet.ambient_light_intensity = 4.0
@@ -990,7 +990,7 @@ def test_state_data(): # 1:1
     return current_packet
 
 def test_packets():
-    current_packet = test_state_data()
+    current_packet = test_client_data()
 
     writer = ByteWriter()
     current_packet.write(writer)
@@ -1003,7 +1003,7 @@ def test_packets():
     if len(writer_data) > 1:
         writer_data = writer_data[1:]  # Skip the first byte (packet ID)
     reader = ByteReader(writer_data)
-    current_packet = packet.StateData(reader)
+    current_packet = packet.ClientData(reader)
     print("Raw object output:")
     
     # Dump all attributes of the object

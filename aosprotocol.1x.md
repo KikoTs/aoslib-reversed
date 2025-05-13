@@ -44,7 +44,7 @@ This page documents the Ace of Spades 1.x protocol.
   - [Explode Corpse (36)](#explode-corpse)
   - [Damage (37)](#damage)
   - [Block Manager State (38) (work in progress)](#block-manager-state)
-  - [ServerBlockAction (39) (work in progress)](#server-block-action)
+  - [Server Block Action (39) (work in progress)](#server-block-action)
   - [Block Line (40)](#block-line)
   - [Minimap Billboard (41)](#minimap-billboard)
   - [Minimap Billboard Clear (42)](#minimap-billboard-clear)
