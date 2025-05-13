@@ -758,7 +758,7 @@ cdef class ForceTeamJoin(Loader): # Fixed
 
 
 cdef class GenericVoteMessage(Loader): # Fixed
-    id: int = 109
+    id: int = 47
     compress_packet: bool = False
     cdef public:
         int player_id, message_type
@@ -948,7 +948,7 @@ cdef class MapDataValidation(Loader): # Fixed
         writer.write_int(self.crc)
 
 cdef class MapEnded(Loader): # Fixed
-    id: int = 58
+    id: int = 52
     compress_packet: bool = False
     cpdef read(self, ByteReader reader):
         pass

@@ -52,10 +52,12 @@ This page documents the Ace of Spades 1.x protocol.
   - [Minimap Zone Clear (44)](#minimap-zone-clear)
   - [State Data (45)](#state-data)
   - [Kill Action (46)](#kill-action)
+  - [Generic Vote Message (47)](#generic-vote-message)
   - [Instantiate Kick Message (48)](#instantiate-kick-message)
   - [Chat Message (49)](#chat-message)
   - [Localised Message (50)](#localised-message)
   - [SkyBox Data (51)](#skybox-data)
+  - [Map Ended (52)](#map-ended)
   - [Show Game Stats (53)](#show-game-stats)
   - [Map Data Start (54)](#map-data-start)
   - [Map Sync Start (55)](#map-sync-start)
@@ -112,7 +114,6 @@ This page documents the Ace of Spades 1.x protocol.
   - [Territory Base State (106)](#territory-base-state)
   - [Debug Draw (107)](#debug-draw)
   - [Lock To Zone (108)](#lock-to-zone)
-  - [Generic Vote Message (109)](#generic-vote-message)
   - [Help Message (109)](#help-message)
   - [Client In Menu (110)](#client-in-menu)
   - [Password (111)](#password)
@@ -782,6 +783,23 @@ No fields for this packet.
 | isDominationKill | boolean | Whether it's a domination kill |
 | isRevengeKill | boolean | Whether it's a revenge kill |
 
+### Generic Vote Message
+| Property | Value |
+|-----------|-------|
+| Packet ID | 47 |
+| Compression | No |
+
+| Field Name | Field Type | Notes |
+|------------|------------|-------|
+| player_id | byte | ID of the player initiating vote |
+| message_type | byte | Type of vote message |
+| candidates | list[{name: string, votes: byte}] | Vote candidates and vote counts |
+| title | string | Title of the vote |
+| description | string | Description of the vote |
+| can_vote | boolean | Whether player can vote |
+| allow_revote | boolean | Whether revoting is allowed |
+| hide_after_vote | boolean | Whether to hide after voting |
+
 ### Instantiate Kick Message
 | Property | Value |
 |-----------|-------|
@@ -829,6 +847,17 @@ No fields for this packet.
 | Field Name | Field Type | Notes |
 |------------|------------|-------|
 | value | string | Skybox configuration data |
+
+### Map Ended
+| Property | Value |
+|-----------|-------|
+| Packet ID | 52 |
+| Compression | No |
+
+| Field Name | Field Type | Notes |
+|------------|------------|-------|
+
+No fields for this packet.
 
 ### Show Game Stats
 | Property | Value |
@@ -1466,22 +1495,6 @@ No fields for this packet.
 | A2021 | short | Y max coordinate (back boundary) |
 | A2023 | short | Z max coordinate (top boundary) |
 
-### Generic Vote Message
-| Property | Value |
-|-----------|-------|
-| Packet ID | 109 |
-| Compression | No |
-
-| Field Name | Field Type | Notes |
-|------------|------------|-------|
-| player_id | byte | ID of the player initiating vote |
-| message_type | byte | Type of vote message |
-| candidates | list[{name: string, votes: byte}] | Vote candidates and vote counts |
-| title | string | Title of the vote |
-| description | string | Description of the vote |
-| can_vote | boolean | Whether player can vote |
-| allow_revote | boolean | Whether revoting is allowed |
-| hide_after_vote | boolean | Whether to hide after voting |
 
 ### Help Message
 | Property | Value |
