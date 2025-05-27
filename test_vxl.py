@@ -1,6 +1,6 @@
 import os, sys
 import unittest
-
+import subprocess, sys
 # This runs for both python 2 and 3
 # Those whole reason for this file is to test original impelementation vs our implementation
 # That way we can see if our implementation is correct
@@ -31,7 +31,11 @@ import aoslib.kv6
 vxl_path = aoslib.vxl.VXL(-1,"sadwasd", 7, 2)
 print(vxl_path)
 
-# dump all functions of vxl
-for func in dir(vxl_path):
-    print(func)
-
+# # dump all functions of vxl
+# for func in dir(vxl_path):
+#     print(func)
+aoslib.kv6.KV6(
+    "C:\\Users\\todor\Downloads\AceOfSpadesLibrary\\aosdump\\kv6\\prefab_london_duck.kv6",
+    24,
+    load_display=False  # disable the display hook to isolate load_kv6
+)
