@@ -13,8 +13,8 @@ cdef extern from "vxl_c.h" nogil:
     cdef int MAP_Z
     cdef uint32_t DEFAULT_COLOR
 
-    cdef cppclass AceMap:
-        AceMap(uint8_t *buf) except +
+    cdef cppclass AosMap:
+        AosMap(uint8_t *buf) except +
         void read(uint8_t *buf) except +
         vector[uint8_t] write() except +
         size_t write(vector[uint8_t] &v, int *sx, int *sy, int columns);
@@ -41,7 +41,7 @@ cpdef block_color(int r, int g, int b)
 
 cdef class VXL:
     cdef:
-        AceMap *map_data
+        AosMap *map_data
         
     cpdef add_point(self, int x, int y, int z, tuple color)
     cpdef add_static_light(self, int x, int y, int z, unsigned char r, unsigned char g, unsigned char b, float light_radius)

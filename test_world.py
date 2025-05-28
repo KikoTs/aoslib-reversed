@@ -22,9 +22,8 @@ else:
 
 # Import after setting up the paths
 import aoslib.world 
-import aoslib.vxl
 import shared.glm
-
+import aoslib.vxl
 print(aoslib.world)
 
 # VXL Args 
@@ -32,8 +31,8 @@ print(aoslib.world)
 # _data Must be a Python 2 str (i.e. a bytestring) - the code calls PyString_AsStringAndSize(_data, &s, &len);
 # _data_size Again converted via PyInt_AsLong to a C int. This is not auto-derived from len(_data) - you must pass the number of bytes you actually intend the C++ side to read.
 # _detail_level (default 2) Converted to int and stashed away in the freshly created MapData. (optional)
-vxl_path = aoslib.vxl.VXL(-1,"sadwasd", 7, 2)
-world = aoslib.world.World(vxl_path)
+vxl = aoslib.vxl.VXL(-1,"sadwasd", 7, 2)
+world = aoslib.world.World(vxl)
 player = aoslib.world.Player(world)
 
 player.set_orientation(shared.glm.Vector3(0,0,0))

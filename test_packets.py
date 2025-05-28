@@ -809,7 +809,7 @@ def test_progress_bar(): # 1:1
     return current_packet
 
 def test_map_data_validation(): # 1:1
-    current_packet = packet.AceMapValidation()
+    current_packet = packet.AosMapValidation()
     current_packet.crc = 1
     return current_packet
 
@@ -865,17 +865,17 @@ def test_build_prefab_action(): # 1:1
     return current_packet
 
 def test_map_data_chunk(): # 1:1
-    current_packet = packet.AceMapChunk()
+    current_packet = packet.AosMapChunk()
     current_packet.data = b"test"
     current_packet.percent_complete = 1
     return current_packet
 
 def test_map_data_end(): # 1:1
-    current_packet = packet.AceMapEnd()
+    current_packet = packet.AosMapEnd()
     return current_packet
 
 def test_map_data_start(): # 1:1
-    current_packet = packet.AceMapStart()
+    current_packet = packet.AosMapStart()
     return current_packet
 
 def test_existing_player(): # 1:1

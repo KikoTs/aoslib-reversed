@@ -27,9 +27,9 @@ constexpr bool is_valid_pos(const int pos) {
 }
 
 
-class AceMap {
+class AosMap {
 public:
-    AceMap(uint8_t *buf = nullptr);
+    AosMap(uint8_t *buf = nullptr);
     void read(uint8_t *buf);
     std::vector<uint8_t> write();
     size_t write(std::vector<uint8_t> &v, int *sx, int *sy, int columns=-1);
@@ -73,4 +73,4 @@ private:
     }
 };
 
-// int check_node(int x, int y, int z, AceMap * map, int destroy);
+// int check_node(int x, int y, int z, AosMap * map, int destroy);

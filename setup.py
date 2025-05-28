@@ -1,7 +1,7 @@
 from setuptools import setup, Extension
 from Cython.Build import cythonize
 
-names = ['shared.bytes', 'shared.packet', 'shared.glm', 'aoslib.vxl', "aoslib.kv6"]
+names = ['shared.bytes', 'shared.packet', 'shared.glm', 'aoslib.vxl', "aoslib.kv6", "aoslib.world"]
 modules = []
 include = []
 

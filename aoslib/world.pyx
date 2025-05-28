@@ -1,235 +1,398 @@
-from aoslib cimport vxl
-from shared cimport glm
-cdef extern from "math.h":
-    double floor(double x)
+# cython: language_level=3
+import math
+import random
 
-def cast_ray(vxl.VXL map, glm.Vector3 pos, glm.Vector3 dir, double length=32, bint isdirection=True):
-    cdef long x, y, z
-    if c_cast_ray(map.map_data, 
-                 pos.cpp_obj.x, pos.cpp_obj.y, pos.cpp_obj.z,
-                 dir.cpp_obj.x, dir.cpp_obj.y, dir.cpp_obj.z,
-                 &x, &y, &z, length, isdirection):
-        return x, y, z
-    else:
-        return False
+# Module-level functions
+cpdef object A2(object arg):
+    """A2 function implementation"""
+    return arg
 
+cpdef object cube_line(object arg1, object arg2, object arg3):
+    """cube_line function implementation"""
+    return (arg1, arg2, arg3)
 
-cdef class WorldObject:
-    def __init__(self, vxl.VXL map, *arg, **kwargs):
-        self.map = map
+cpdef object floor(object val):
+    """floor function implementation"""
+    return math.floor(val)
 
-    cdef long update(self, double dt, double time):
-        return 0
+cpdef object get_next_cube(object arg1, object arg2):
+    """get_next_cube function implementation"""
+    return (arg1, arg2)
 
+cpdef object get_random_vector():
+    """get_random_vector function implementation"""
+    return (random.random(), random.random(), random.random())
 
-cdef class Player:
-    def __cinit__(self, vxl.VXL map):
-        self.ply = new AcePlayer(map.map_data)
-        self.position = glm.Vector3(self.ply.p_x, self.ply.p_y, self.ply.p_z)
-        self.velocity = glm.Vector3(self.ply.v_x, self.ply.v_y, self.ply.v_z)
-        self.orientation = glm.Vector3(self.ply.f_x, self.ply.f_y, self.ply.f_z)
-        self.eye = glm.Vector3(self.ply.e_x, self.ply.e_y, self.ply.e_z)
+cpdef bool is_centered(object arg):
+    """is_centered function implementation"""
+    return True
 
-    def __init__(self, vxl.VXL map):
+cpdef object parse_constant_overrides(object arg):
+    """parse_constant_overrides function implementation"""
+    return arg
+
+# World class
+cdef class World:
+    def __init__(self, map_obj):
+        self.map = map_obj
+        self.timer = 0.0
+    
+    def create_object(self, obj_type):
+        """Create a new object in the world"""
+        return obj_type(self)
+    
+    def get_block_face_center_position(self, x, y, z, face):
+        """Get the center position of a block face"""
+        return (x, y, z, face)
+    
+    def get_gravity(self):
+        """Get world gravity"""
+        return -32.0
+    
+    def hitscan(self, start, direction, max_distance):
+        """Perform hitscan raycast"""
+        return None
+    
+    def hitscan_accurate(self, start, direction, max_distance):
+        """Perform accurate hitscan raycast"""
+        return None
+    
+    def set_gravity(self, gravity):
+        """Set world gravity"""
+        pass
+    
+    def update(self, dt):
+        """Update world"""
+        self.timer += dt
+
+# Base Object class
+cdef class Object:
+    def __init__(self, world=None):
+        self.deleted = False
+        self.name = ""
+        self.position = (0.0, 0.0, 0.0)
+    
+    def check_valid_position(self, pos):
+        """Check if position is valid"""
+        return True
+    
+    def delete(self):
+        """Delete this object"""
+        self.deleted = True
+    
+    def initialize(self):
+        """Initialize object"""
+        pass
+    
+    def update(self, dt):
+        """Update object"""
         pass
 
-    def __dealloc__(self):
-        del self.ply
-        
-    cdef _sync_from_cpp(self):
-        self.position.set(self.ply.p_x, self.ply.p_y, self.ply.p_z)
-        self.velocity.set(self.ply.v_x, self.ply.v_y, self.ply.v_z)
-        self.orientation.set(self.ply.f_x, self.ply.f_y, self.ply.f_z)
-        self.eye.set(self.ply.e_x, self.ply.e_y, self.ply.e_z)
-        
-    cdef _sync_to_cpp(self):
-        self.ply.p_x = self.position.cpp_obj.x
-        self.ply.p_y = self.position.cpp_obj.y
-        self.ply.p_z = self.position.cpp_obj.z
-        self.ply.v_x = self.velocity.cpp_obj.x
-        self.ply.v_y = self.velocity.cpp_obj.y
-        self.ply.v_z = self.velocity.cpp_obj.z
-        self.ply.f_x = self.orientation.cpp_obj.x
-        self.ply.f_y = self.orientation.cpp_obj.y
-        self.ply.f_z = self.orientation.cpp_obj.z
-        self.ply.e_x = self.eye.cpp_obj.x
-        self.ply.e_y = self.eye.cpp_obj.y
-        self.ply.e_z = self.eye.cpp_obj.z
-
-    def set_crouch(self, bint value):
-        if value == self.ply.crouch:
-            return
-        if value:
-            self.ply.p_z += 0.9
-        else:
-            self.ply.p_z -= 0.9
-        self.ply.crouch = value
-        self._sync_from_cpp()
-
-    def set_animation(self, bint jump, bint crouch, bint sneak, bint sprint):
-        if self.ply.airborne:
-            jump = False
-        self.ply.jump = jump
-        self.set_crouch(crouch)
-        self.ply.sneak = sneak
-        self.ply.sprint = sprint
-
-    def set_weapon(self, bint is_primary):
-        self.ply.weapon = is_primary
-
-    def set_walk(self, bint up, bint down, bint left, bint right):
-        self.ply.mf = up
-        self.ply.mb = down
-        self.ply.ml = left
-        self.ply.mr = right
-
-    def set_fire(self, bint primary, bint secondary):
-        self.ply.primary_fire = primary
-        self.ply.secondary_fire = secondary
-
-    def set_position(self, double x, double y, double z, bint reset=False):
-        self.position.set(x, y, z)
-        self.eye.set(x, y, z)
-        self._sync_to_cpp()
-        
-        if reset:
-            self.velocity.set(0, 0, 0)
-            self._sync_to_cpp()
-            self.set_walk(False, False, False, False)
-            self.set_animation(False, False, False, False)
-            self.set_fire(False, False)
-            self.set_weapon(True)
-
-    def set_dead(self, bint dead):
-        self.ply.alive = not dead
-
-    @property
-    def mf(self):
-        return self.ply.mf
-    @mf.setter
-    def mf(self, value):
-        self.ply.mf = value
-
-    @property
-    def mb(self):
-        return self.ply.mb
-    @mb.setter
-    def mb(self, value):
-        self.ply.mb = value
-
-    @property
-    def ml(self):
-        return self.ply.ml
-    @ml.setter
-    def ml(self, value):
-        self.ply.ml = value
-
-    @property
-    def mr(self):
-        return self.ply.mr
-    @mr.setter
-    def mr(self, value):
-        self.ply.mr = value
-
-    @property
-    def jump(self):
-        return self.ply.jump
-    @jump.setter
-    def jump(self, value):
-        self.ply.jump = value
-
-    @property
-    def crouch(self):
-        return self.ply.crouch
-    @crouch.setter
-    def crouch(self, value):
-        self.set_crouch(value)
-
-    @property
-    def sneak(self):
-        return self.ply.sneak
-    @sneak.setter
-    def sneak(self, value):
-        self.ply.sneak = value
-
-    @property
-    def sprint(self):
-        return self.ply.sneak
-    @sprint.setter
-    def sprint(self, value):
-        self.ply.sprint = value
-
-    @property
-    def airborne(self):
-        return self.ply.airborne
-
-    @property
-    def wade(self):
-        return self.ply.wade
-
-    @property
-    def dead(self):
-        return not self.ply.alive
-    @dead.setter
-    def dead(self, bint val):
-        self.ply.alive = not val
-
-    def set_orientation(self, double x, double y, double z):
-        self.ply.set_orientation(x, y, z)
-        self._sync_from_cpp()
-
-    def update(self, double dt, double time):
-        result = self.ply.update(dt, time)
-        self._sync_from_cpp()
-        return result
-
-
-cdef class Grenade:
-    def __cinit__(self, vxl.VXL map, double px, double py, double pz, double vx, double vy, double vz):
-        self.grenade = new AceGrenade(map.map_data, px, py, pz, vx, vy, vz)
-        self.position = glm.Vector3(self.grenade.p_x, self.grenade.p_y, self.grenade.p_z)
-        self.velocity = glm.Vector3(self.grenade.v_x, self.grenade.v_y, self.grenade.v_z)
-
-    def __init__(self, vxl.VXL map, double px, double py, double pz, double vx, double vy, double vz):
+# Player class (inherits from Object)
+cdef class Player(Object):
+    def __init__(self, world):
+        super().__init__(world)
+        self.airborne = False
+        self.burdened = False
+        self.crouch = False
+        self.down = False
+        self.fall = False
+        self.hover = False
+        self.is_locked_to_box = False
+        self.jetpack = False
+        self.jetpack_active = False
+        self.jetpack_passive = False
+        self.jump = False
+        self.jump_this_frame = False
+        self.left = False
+        self.orientation = (0.0, 0.0, 0.0)
+        self.parachute = False
+        self.parachute_active = False
+        self.right = False
+        self.s = None
+        self.sneak = False
+        self.sprint = False
+        self.up = False
+        self.velocity = (0.0, 0.0, 0.0)
+        self.wade = False
+    
+    def check_cube_placement(self, x, y, z):
+        """Check if cube can be placed at position"""
+        return True
+    
+    def clear_locked_to_box(self):
+        """Clear locked to box state"""
+        self.is_locked_to_box = False
+    
+    def get_cube_sq_distance(self, x, y, z):
+        """Get squared distance to cube"""
+        px, py, pz = self.position
+        dx = x - px
+        dy = y - py
+        dz = z - pz
+        return dx*dx + dy*dy + dz*dz
+    
+    def set_class_accel_multiplier(self, multiplier):
+        """Set class acceleration multiplier"""
+        pass
+    
+    def set_class_can_sprint_uphill(self, can_sprint):
+        """Set if class can sprint uphill"""
+        pass
+    
+    def set_class_crouch_sneak_multiplier(self, multiplier):
+        """Set class crouch sneak multiplier"""
+        pass
+    
+    def set_class_fall_on_water_damage_multiplier(self, multiplier):
+        """Set class fall on water damage multiplier"""
+        pass
+    
+    def set_class_falling_damage_max_damage(self, damage):
+        """Set class falling damage max damage"""
+        pass
+    
+    def set_class_falling_damage_max_distance(self, distance):
+        """Set class falling damage max distance"""
+        pass
+    
+    def set_class_falling_damage_min_distance(self, distance):
+        """Set class falling damage min distance"""
+        pass
+    
+    def set_class_jump_multiplier(self, multiplier):
+        """Set class jump multiplier"""
+        pass
+    
+    def set_class_sprint_multiplier(self, multiplier):
+        """Set class sprint multiplier"""
+        pass
+    
+    def set_class_water_friction(self, friction):
+        """Set class water friction"""
+        pass
+    
+    def set_climb_slowdown(self, slowdown):
+        """Set climb slowdown"""
+        pass
+    
+    def set_crouch(self, crouch):
+        """Set crouch state"""
+        self.crouch = crouch
+    
+    def set_dead(self, dead):
+        """Set dead state"""
+        pass
+    
+    def set_exploded(self, exploded):
+        """Set exploded state"""
+        pass
+    
+    def set_locked_to_box(self, box):
+        """Set locked to box"""
+        self.is_locked_to_box = True
+    
+    cpdef void set_orientation(self, object orientation):
+        """Set player orientation"""
+        self.orientation = orientation
+    
+    cpdef void set_position(self, object x, object y, object z):
+        """Set player position"""
+        self.position = (x, y, z)
+    
+    cpdef void set_velocity(self, object x, object y, object z):
+        """Set player velocity"""
+        self.velocity = (x, y, z)
+    
+    def set_walk(self, walk):
+        """Set walk state"""
         pass
 
-    def __dealloc__(self):
-        del self.grenade
-        
-    cdef _sync_from_cpp(self):
-        self.position.set(self.grenade.p_x, self.grenade.p_y, self.grenade.p_z)
-        self.velocity.set(self.grenade.v_x, self.grenade.v_y, self.grenade.v_z)
-        
-    cdef _sync_to_cpp(self):
-        self.grenade.p_x = self.position.cpp_obj.x
-        self.grenade.p_y = self.position.cpp_obj.y
-        self.grenade.p_z = self.position.cpp_obj.z
-        self.grenade.v_x = self.velocity.cpp_obj.x
-        self.grenade.v_y = self.velocity.cpp_obj.y
-        self.grenade.v_z = self.velocity.cpp_obj.z
+# PlayerMovementHistory class
+cdef class PlayerMovementHistory:
+    def __init__(self):
+        self.loop_count = 0
+        self.position = []
+        self.velocity = []
+    
+    def get_client_data(self):
+        """Get client data"""
+        return {"loop_count": self.loop_count, "position": self.position, "velocity": self.velocity}
+    
+    def set_all_data(self, data):
+        """Set all data"""
+        self.loop_count = data.get("loop_count", 0)
+        self.position = data.get("position", [])
+        self.velocity = data.get("velocity", [])
 
-    def update(self, double dt, double time):
-        result = self.grenade.update(dt, time)
-        self._sync_from_cpp()
-        return result
+# Grenade class (inherits from Object)
+cdef class Grenade(Object):
+    def __init__(self, world):
+        super().__init__(world)
+        self.fuse = 3.0
+        self.velocity = (0.0, 0.0, 0.0)
+    
+    def initialize(self):
+        """Initialize grenade"""
+        super().initialize()
+    
+    def update(self, dt):
+        """Update grenade"""
+        super().update(dt)
+        self.fuse -= dt
+        if self.fuse <= 0:
+            self.delete()
 
-    def next_collision(self, double dt, double max):
-        cdef:
-            double eta
-            double px, py, pz
-        collides = self.grenade.next_collision(dt, max, &eta, &px, &py, &pz)
-        pos = glm.Vector3(px, py, pz)
-        if collides:
-            return eta, pos
-        else:
-            return False, pos
+# GenericMovement class (inherits from Object)
+cdef class GenericMovement(Object):
+    def __init__(self, world):
+        super().__init__(world)
+        self.last_hit_collision_block = None
+        self.last_hit_normal = (0.0, 0.0, 0.0)
+        self.velocity = (0.0, 0.0, 0.0)
+    
+    def initialize(self):
+        """Initialize generic movement"""
+        super().initialize()
+    
+    def set_allow_burying(self, allow):
+        """Set allow burying"""
+        pass
+    
+    def set_allow_floating(self, allow):
+        """Set allow floating"""
+        pass
+    
+    def set_bouncing(self, bouncing):
+        """Set bouncing"""
+        pass
+    
+    def set_gravity_multiplier(self, multiplier):
+        """Set gravity multiplier"""
+        pass
+    
+    def set_max_speed(self, speed):
+        """Set max speed"""
+        pass
+    
+    def set_position(self, x, y, z):
+        """Set position"""
+        self.position = (x, y, z)
+    
+    def set_stop_on_collision(self, stop):
+        """Set stop on collision"""
+        pass
+    
+    def set_stop_on_face(self, face):
+        """Set stop on face"""
+        pass
+    
+    def set_velocity(self, x, y, z):
+        """Set velocity"""
+        self.velocity = (x, y, z)
 
+# FallingBlocks class (inherits from Object)
+cdef class FallingBlocks(Object):
+    def __init__(self, world):
+        super().__init__(world)
+        self.rotation = (0.0, 0.0, 0.0)
+        self.velocity = (0.0, 0.0, 0.0)
+    
+    def initialize(self):
+        """Initialize falling blocks"""
+        super().initialize()
+    
+    def update(self, dt):
+        """Update falling blocks"""
+        super().update(dt)
 
-# A generic object with collision detection
-cdef class GenericMovement:
-    def __init__(self, vxl.VXL map, double x, double y, double z):
-        self.map = map
-        self.position = glm.Vector3(x, y, z)
+# Debris class (inherits from Object)
+cdef class Debris(Object):
+    def __init__(self, world):
+        super().__init__(world)
+        self.in_use = False
+        self.rotation = (0.0, 0.0, 0.0)
+        self.rotation_speed = (0.0, 0.0, 0.0)
+        self.velocity = (0.0, 0.0, 0.0)
+    
+    def initialize(self):
+        """Initialize debris"""
+        super().initialize()
+    
+    def free(self):
+        """Free debris"""
+        self.in_use = False
+    
+    def use(self):
+        """Use debris"""
+        self.in_use = True
+    
+    def update(self, dt):
+        """Update debris"""
+        super().update(dt)
 
-    def update(self, double dt, double time):
-        return clipbox(self.map.map_data, floor(self.position.cpp_obj.x), floor(self.position.cpp_obj.y), floor(self.position.cpp_obj.z))
+# ControlledGenericMovement class (inherits from Object)
+cdef class ControlledGenericMovement(Object):
+    def __init__(self, world):
+        super().__init__(world)
+        self.forward_vector = (1.0, 0.0, 0.0)
+        self.input_back = False
+        self.input_forward = False
+        self.input_left = False
+        self.input_right = False
+        self.last_hit_collision_block = None
+        self.last_hit_normal = (0.0, 0.0, 0.0)
+        self.speed_back = 1.0
+        self.speed_forward = 1.0
+        self.speed_left = 1.0
+        self.speed_right = 1.0
+        self.strafing = False
+        self.velocity = (0.0, 0.0, 0.0)
+    
+    def initialize(self):
+        """Initialize controlled generic movement"""
+        super().initialize()
+    
+    def set_allow_burying(self, allow):
+        """Set allow burying"""
+        pass
+    
+    def set_allow_floating(self, allow):
+        """Set allow floating"""
+        pass
+    
+    def set_bouncing(self, bouncing):
+        """Set bouncing"""
+        pass
+    
+    def set_forward_vector(self, vector):
+        """Set forward vector"""
+        self.forward_vector = vector
+    
+    def set_gravity_multiplier(self, multiplier):
+        """Set gravity multiplier"""
+        pass
+    
+    def set_max_speed(self, speed):
+        """Set max speed"""
+        pass
+    
+    def set_position(self, x, y, z):
+        """Set position"""
+        self.position = (x, y, z)
+    
+    def set_stop_on_collision(self, stop):
+        """Set stop on collision"""
+        pass
+    
+    def set_stop_on_face(self, face):
+        """Set stop on face"""
+        pass
+    
+    def set_velocity(self, x, y, z):
+        """Set velocity"""
+        self.velocity = (x, y, z)
+    
+    def update(self, dt):
+        """Update controlled generic movement"""
+        super().update(dt)

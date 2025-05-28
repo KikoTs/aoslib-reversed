@@ -3,9 +3,9 @@ import zlib
 from cpython.bytes cimport PyBytes_AS_STRING
 from libc.stdlib cimport malloc, free
 
-# Define AceMap type to fix compilation errors
+# Define AosMap type to fix compilation errors
 # cdef extern from *:
-#     ctypedef struct AceMap:
+#     ctypedef struct AosMap:
 #         pass
 
 VXL_MAP_X = MAP_X
@@ -24,10 +24,10 @@ cpdef inline block_color(int r, int g, int b):
 # _detail_level (default 2) Converted to int and stashed away in the freshly created MapData. (optional)
 cdef class VXL:
     def __cinit__(self, int state=-1, data=None, int data_size=0, int detail_level=2):
-        # The AceMap constructor only takes a single parameter (buffer)
+        # The AosMap constructor only takes a single parameter (buffer)
         # We'll ignore the state, data_size, and detail_level for now
         cdef uint8_t *buffer = NULL  # Always initialize with NULL for safety
-        self.map_data = new AceMap(buffer)
+        self.map_data = new AosMap(buffer)
 
     def __dealloc__(self):
         del self.map_data

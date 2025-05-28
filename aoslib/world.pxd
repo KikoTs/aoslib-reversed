@@ -1,67 +1,111 @@
-# from .vxl cimport VXL, AceMap
-from aoslib cimport vxl
-from shared cimport glm
 from libcpp cimport bool
+from libcpp.string cimport string
+from libcpp.vector cimport vector
 
-# C++ class declarations
-cdef extern from "world_c.cpp" nogil:
-    cdef cppclass AcePlayer:
-        AcePlayer(vxl.AceMap *map) except +
-        long update(double dt, double time)
-        void set_orientation(double x, double y, double z)
+# Forward declarations
+cdef class World
+cdef class Object
+cdef class Player
+cdef class PlayerMovementHistory
+cdef class Grenade
+cdef class GenericMovement
+cdef class FallingBlocks
+cdef class Debris
+cdef class ControlledGenericMovement
 
-        vxl.AceMap *map
-        bool mf, mb, ml, mr, jump, crouch, sneak, sprint, primary_fire, secondary_fire, airborne, wade, alive, weapon
-        float lastclimb
-        double p_x, p_y, p_z  # Position
-        double v_x, v_y, v_z  # Velocity 
-        double f_x, f_y, f_z  # Forward direction
-        double e_x, e_y, e_z  # Eye position
+# Module-level functions
+cpdef object A2(object arg)
+cpdef object cube_line(object arg1, object arg2, object arg3)
+cpdef object floor(object val)
+cpdef object get_next_cube(object arg1, object arg2)
+cpdef object get_random_vector()
+cpdef bool is_centered(object arg)
+cpdef object parse_constant_overrides(object arg)
 
-    cdef cppclass AceGrenade:
-        AceGrenade(vxl.AceMap *map, double px, double py, double pz, double vx, double vy, double vz) except +
-        bool update(double dt, double time)
-        bool next_collision(double dt, double max, double *eta, double *px, double *py, double *pz)
+# World class
+cdef class World:
+    cdef public object map
+    cdef public object timer
 
-        vxl.AceMap *map
-        double p_x, p_y, p_z  # Position
-        double v_x, v_y, v_z  # Velocity
-
-    bool c_cast_ray "cast_ray" (vxl.AceMap *map,
-                               double px, double py, double pz, 
-                               double dx, double dy, double dz,
-                               long *x, long *y, long *z, float length, bool isdirection)
-
-    bool clipbox(vxl.AceMap *map, float x, float y, float z)
-
-
-cdef class WorldObject:
-    cdef public:
-        str name
-        vxl.VXL map
-
-    cdef long update(self, double dt, double time)
-
-
-cdef class Player:
-    cdef AcePlayer *ply
-    cdef public:
-        glm.Vector3 position, velocity, orientation, eye
+# Base Object class
+cdef class Object:
+    cdef public bool deleted
+    cdef public object name
+    cdef public object position
     
-    cdef _sync_from_cpp(self)
-    cdef _sync_to_cpp(self)
 
 
-cdef class Grenade:
-    cdef AceGrenade *grenade
-    cdef public:
-        glm.Vector3 position, velocity
+# Player class (inherits from Object)
+cdef class Player(Object):
+    cdef public bool airborne
+    cdef public bool burdened
+    cdef public bool crouch
+    cdef public bool down
+    cdef public bool fall
+    cdef public bool hover
+    cdef public bool is_locked_to_box
+    cdef public bool jetpack
+    cdef public bool jetpack_active
+    cdef public bool jetpack_passive
+    cdef public bool jump
+    cdef public bool jump_this_frame
+    cdef public bool left
+    cdef public object orientation
+    cdef public bool parachute
+    cdef public bool parachute_active
+    cdef public bool right
+    cdef public object s
+    cdef public bool sneak
+    cdef public bool sprint
+    cdef public bool up
+    cdef public object velocity
+    cdef public bool wade
     
-    cdef _sync_from_cpp(self)
-    cdef _sync_to_cpp(self)
+    cpdef void set_orientation(self, object orientation)
+    cpdef void set_position(self, object x, object y, object z)
+    cpdef void set_velocity(self, object x, object y, object z)
 
+# PlayerMovementHistory class
+cdef class PlayerMovementHistory:
+    cdef public object loop_count
+    cdef public object position
+    cdef public object velocity
 
-cdef class GenericMovement:
-    cdef public:
-        vxl.VXL map
-        glm.Vector3 position
+# Grenade class (inherits from Object)
+cdef class Grenade(Object):
+    cdef public object fuse
+    cdef public object velocity
+
+# GenericMovement class (inherits from Object)
+cdef class GenericMovement(Object):
+    cdef public object last_hit_collision_block
+    cdef public object last_hit_normal
+    cdef public object velocity
+
+# FallingBlocks class (inherits from Object)
+cdef class FallingBlocks(Object):
+    cdef public object rotation
+    cdef public object velocity
+
+# Debris class (inherits from Object)
+cdef class Debris(Object):
+    cdef public bool in_use
+    cdef public object rotation
+    cdef public object rotation_speed
+    cdef public object velocity
+
+# ControlledGenericMovement class (inherits from Object)
+cdef class ControlledGenericMovement(Object):
+    cdef public object forward_vector
+    cdef public bool input_back
+    cdef public bool input_forward
+    cdef public bool input_left
+    cdef public bool input_right
+    cdef public object last_hit_collision_block
+    cdef public object last_hit_normal
+    cdef public object speed_back
+    cdef public object speed_forward
+    cdef public object speed_left
+    cdef public object speed_right
+    cdef public bool strafing
+    cdef public object velocity

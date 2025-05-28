@@ -14,12 +14,12 @@ void write_bytes(std::vector<uint8_t> &vec, T item) {
     vec.push_back(static_cast<uint8_t>(item >> 24));
 }
 
-AceMap::AceMap(uint8_t *buf) : eng(std::chrono::system_clock::now().time_since_epoch().count()) {
+AosMap::AosMap(uint8_t *buf) : eng(std::chrono::system_clock::now().time_since_epoch().count()) {
     nodes.reserve(512);
     this->read(buf);
 }
 
-void AceMap::read(uint8_t *buf) {
+void AosMap::read(uint8_t *buf) {
     if (!buf) return;
 
     for (int y = 0; y < MAP_Y; ++y) {
@@ -70,7 +70,7 @@ void AceMap::read(uint8_t *buf) {
     }
 }
 
-std::vector<uint8_t> AceMap::write() {
+std::vector<uint8_t> AosMap::write() {
     std::vector<uint8_t> v;
     v.reserve(5 * 1024 * 1024);
     int x = 0, y = 0;
@@ -78,7 +78,7 @@ std::vector<uint8_t> AceMap::write() {
     return v;
 }
 
-size_t AceMap::write(std::vector<uint8_t> &v, int *sx, int *sy, int columns) {
+size_t AosMap::write(std::vector<uint8_t> &v, int *sx, int *sy, int columns) {
     size_t initial_size = v.size();
     int column = 0;
     const bool all = columns < 0;
@@ -156,7 +156,7 @@ done:
     return v.size() - initial_size;
 }
 
-bool AceMap::is_surface(const int x, const int y, const int z) {
+bool AosMap::is_surface(const int x, const int y, const int z) {
     if (!this->geometry[get_pos(x, y, z)]) return false;
     if (x     >     0 && !this->geometry[get_pos(x - 1, y, z)]) return true;
     if (x + 1 < MAP_X && !this->geometry[get_pos(x + 1, y, z)]) return true;
@@ -167,7 +167,7 @@ bool AceMap::is_surface(const int x, const int y, const int z) {
     return false;
 }
 
-bool AceMap::get_solid(int x, int y, int z, bool wrapped) {
+bool AosMap::get_solid(int x, int y, int z, bool wrapped) {
     if (wrapped) {
         x &= (MAP_X - 1);
         y &= (MAP_Y - 1);
@@ -177,7 +177,7 @@ bool AceMap::get_solid(int x, int y, int z, bool wrapped) {
     return this->geometry[get_pos(x, y, z)];
 }
 
-uint32_t AceMap::get_color(int x, int y, int z, bool wrapped) {
+uint32_t AosMap::get_color(int x, int y, int z, bool wrapped) {
     if (wrapped) {
         x &= (MAP_X - 1);
         y &= (MAP_Y - 1);
@@ -186,14 +186,14 @@ uint32_t AceMap::get_color(int x, int y, int z, bool wrapped) {
     return this->colors[get_pos(x, y, z)];
 }
 
-int AceMap::get_z(const int x, const int y, const int start) {
+int AosMap::get_z(const int x, const int y, const int start) {
     for(int z = start; z < MAP_Z; z++) {
         if (this->get_solid(x, y, z)) return z;
     }
     return MAP_Z;
 }
 
-void AceMap::get_random_point(int *x, int *y, int *z, int x1, int y1, int x2, int y2) {
+void AosMap::get_random_point(int *x, int *y, int *z, int x1, int y1, int x2, int y2) {
     std::uniform_int_distribution<int> xdist(x1, x2 - 1);
     std::uniform_int_distribution<int> ydist(y1, y2 - 1);
 
@@ -207,13 +207,13 @@ void AceMap::get_random_point(int *x, int *y, int *z, int x1, int y1, int x2, in
     *x = rx; *y = ry; *z = rz;
 }
 
-std::vector<Pos3> AceMap::get_neighbors(int x, int y, int z) {
+std::vector<Pos3> AosMap::get_neighbors(int x, int y, int z) {
     std::vector<Pos3> neighbors;
     this->add_neighbors(neighbors, x, y, z);
     return neighbors;
 }
 
-std::vector<Pos3> AceMap::block_line(int x1, int y1, int z1, int x2, int y2, int z2) const {
+std::vector<Pos3> AosMap::block_line(int x1, int y1, int z1, int x2, int y2, int z2) const {
     std::vector<Pos3> ret;
 
     Pos3 c{ x1, y1, z1 };
@@ -292,11 +292,11 @@ std::vector<Pos3> AceMap::block_line(int x1, int y1, int z1, int x2, int y2, int
     return ret;
 }
 
-bool AceMap::set_point(const int x, const int y, const int z, const bool solid, const uint32_t color) {
+bool AosMap::set_point(const int x, const int y, const int z, const bool solid, const uint32_t color) {
     return this->set_point(get_pos(x, y, z), solid, color);
 }
 
-bool AceMap::set_point(const size_t pos, const bool solid, const uint32_t color) {
+bool AosMap::set_point(const size_t pos, const bool solid, const uint32_t color) {
     if (!is_valid_pos(pos)) return false;
 
     this->geometry[pos] = solid;
@@ -304,7 +304,7 @@ bool AceMap::set_point(const size_t pos, const bool solid, const uint32_t color)
     return true;
 }
 
-bool AceMap::check_node(int x, int y, int z, bool destroy) {
+bool AosMap::check_node(int x, int y, int z, bool destroy) {
     marked.clear();
     nodes.clear();
     nodes.push_back({x, y, z});
