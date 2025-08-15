@@ -1,7 +1,7 @@
 # This is the project structure for /aosdump folder
-## VIEW ME AS RAW (FOR SOME REASON :D)
-:Note for easier u can just paste the game in the folder :D
+Note for easier u can just paste the game in the folder :D
 
+```
 aosdump
 │   ALURE32.dll
 │   glew32.dll
@@ -119,3 +119,4 @@ aosdump
     │   tcl85.dll
     │   tk85.dll
     │   __init__.py
+```
