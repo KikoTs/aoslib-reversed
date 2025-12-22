@@ -4,6 +4,7 @@ from libc.math cimport isnan, NAN
 from shared.bytes cimport ByteReader, ByteWriter
 from libc.stdint cimport uint64_t
 import cython
+from shared.glm cimport Vector3, IntVector3
 cdef extern from "math.h":
     float roundf(float x)
 
@@ -208,8 +209,12 @@ cdef class Loader:
         return writer
 
 # Packet Classes
+class Color:
+    def __init__(self):
+        self.rgb = (0, 0, 0)
+
 cdef class AddServer(Loader): # Fixed BUT WTF?
-    id: int = 0
+    id: int = -1
     compress_packet: bool = False
     cdef public:
         int count
@@ -3183,15 +3188,17 @@ cdef class StateData(Loader): # Fixed?
 
         write_color(writer, self.light_color) # light color
 
-        writer.write_short(tofixed(self.light_direction[0]))
-        writer.write_short(tofixed(self.light_direction[1]))
+        # NOTE: Write in reverse order (z, y, x) to match Py2 binary format
         writer.write_short(tofixed(self.light_direction[2]))
+        writer.write_short(tofixed(self.light_direction[1]))
+        writer.write_short(tofixed(self.light_direction[0]))
 
         write_color(writer, self.back_light_color) # back light color
 
-        writer.write_short(tofixed(self.back_light_direction[0]))
-        writer.write_short(tofixed(self.back_light_direction[1]))
+        # NOTE: Write in reverse order (z, y, x) to match Py2 binary format
         writer.write_short(tofixed(self.back_light_direction[2]))
+        writer.write_short(tofixed(self.back_light_direction[1]))
+        writer.write_short(tofixed(self.back_light_direction[0]))
 
         write_color(writer, self.ambient_light_color) # ambient light color
 
@@ -3203,11 +3210,21 @@ cdef class StateData(Loader): # Fixed?
         writer.write_byte(self.mode_type) # mode type
         writer.write_byte(self.team_headcount_type) # team headcount type
 
+
+
         # Team 1
         writer.write_string(self.team1_name) # team 1 name
         write_color(writer, self.team1_color) # team 1 color
         writer.write_int(self.team1_score)
-        writer.write_byte(self.team1_locked) # team 1 locked
+        cdef int team1_flags = 0
+        if self.team1_locked: team1_flags |= 1
+        if self.team1_can_see_team2: team1_flags |= 2
+        if self.team1_show_score: team1_flags |= 4
+        if self.team1_show_max_score: team1_flags |= 8
+        if self.team1_infinite_blocks: team1_flags |= 16
+        if self.team1_locked_class: team1_flags |= 32
+        if self.team1_locked_score: team1_flags |= 64
+        writer.write_byte(team1_flags)
 
         writer.write_byte(len(self.team1_classes)) # team 1 classes length
         for class_id in self.team1_classes:
@@ -3217,56 +3234,55 @@ cdef class StateData(Loader): # Fixed?
         writer.write_string(self.team2_name) # team 2 name
         write_color(writer, self.team2_color) # team 2 color
         writer.write_int(self.team2_score)
-        writer.write_byte(self.team2_locked) # team 2 locked
+        
+        cdef int team2_flags = 0
+        if self.team2_locked: team2_flags |= 1
+        if self.team2_can_see_team1: team2_flags |= 2
+        if self.team2_show_score: team2_flags |= 4
+        if self.team2_show_max_score: team2_flags |= 8
+        if self.team2_infinite_blocks: team2_flags |= 16
+        if self.team2_locked_class: team2_flags |= 32
+        if self.team2_locked_score: team2_flags |= 64
+        writer.write_byte(team2_flags)
         
         writer.write_byte(len(self.team2_classes)) # team 2 classes length
         for class_id in self.team2_classes:
             writer.write_byte(class_id) # team 2 classes
         
-        # Additional team flags
-        writer.write_byte(self.lock_team_swap)
-        writer.write_byte(self.lock_spectator_swap) # Lock spectator swap
-        writer.write_byte(self.team1_can_see_team2)
-        writer.write_byte(self.team2_can_see_team1)
-        
-        # Team flags
-        writer.write_byte(self.team1_show_score)
-        writer.write_byte(self.team1_show_max_score)
-        writer.write_byte(self.team2_show_score)
-        writer.write_byte(self.team2_show_max_score)
-        writer.write_byte(self.team1_locked_class)
-        writer.write_byte(self.team1_locked_score)
-        writer.write_byte(self.team2_locked_class)
-        writer.write_byte(self.team2_locked_score)
-        writer.write_byte(self.team1_infinite_blocks)
-        writer.write_byte(self.team2_infinite_blocks)
-        
-        # Map ended
-        writer.write_byte(self.has_map_ended)
+        # Global flags
+        cdef int lock_flags = 0
+        if self.lock_team_swap: lock_flags |= 1
+        if self.lock_spectator_swap: lock_flags |= 2
+        writer.write_byte(lock_flags)
 
         # Prefabs
         writer.write_byte(len(self.prefabs)) # Prefabs length
+        writer.write_byte(0) # Padding
         for prefab in self.prefabs:
             writer.write_string(prefab) # Prefabs
 
         # Entities
         writer.write_byte(len(self.entities)) # Entities length
+        writer.write_byte(0) # Padding
         for ent in self.entities:
             ent.write(writer) # Entities
 
         # Screenshot cameras points (list of 3 floats) 
         writer.write_byte(len(self.screenshot_cameras_points)) # Screenshot cameras points length
         for point in self.screenshot_cameras_points:
-            writer.write_short(tofixed(point[0])) # Screenshot cameras points
-            writer.write_short(tofixed(point[1])) # Screenshot cameras points
             writer.write_short(tofixed(point[2])) # Screenshot cameras points
+            writer.write_short(tofixed(point[1])) # Screenshot cameras points
+            writer.write_short(tofixed(point[0])) # Screenshot cameras points
 
         # Screenshot cameras rotations (list of 3 floats)
         writer.write_byte(len(self.screenshot_cameras_rotations)) # Screenshot cameras rotations length
         for rotation in self.screenshot_cameras_rotations:
-            writer.write_short(tofixed(rotation[0])) # Screenshot cameras rotations
-            writer.write_short(tofixed(rotation[1])) # Screenshot cameras rotations
             writer.write_short(tofixed(rotation[2])) # Screenshot cameras rotations
+            writer.write_short(tofixed(rotation[1])) # Screenshot cameras rotations
+            writer.write_short(tofixed(rotation[0])) # Screenshot cameras rotations
+            
+        # Map ended
+        writer.write_byte(self.has_map_ended)
             
     def set_entities(self, entities): 
         pass
@@ -3278,7 +3294,62 @@ cdef class StateData(Loader): # Fixed?
 cdef class WorldUpdate(Loader):
     id: int = 2
     compress_packet: bool = False
-    pass
+    cdef public:
+        int loop_count
+        dict player_updates
+
+    def __init__(self, ByteReader reader=None):
+        self.loop_count = 0
+        self.player_updates = {}
+        if reader is not None:
+            self.read(reader)
+
+    def __setitem__(self, key, value):
+        self.player_updates[key] = value
+
+    def clear(self):
+        self.loop_count = 0
+        self.player_updates = {}
+
+    cpdef read(self, ByteReader reader):
+        pass
+
+    cpdef write(self, ByteWriter writer):
+        writer.write_byte(self.id)
+        writer.write_int(self.loop_count)
+        writer.write_byte(len(self.player_updates))
+        for pid, data in self.player_updates.items():
+            # data: (pos, orient, vel, ping, pong, hp, input, action, tool)
+            # We explicitly expand the tuple to ensure we use all data
+            # If tuple size mismatches, this will raise error, which is good for debugging
+            pos, orient, vel, ping, pong, hp, inp, action, tool = data
+            
+            writer.write_byte(pid)
+            
+            # Position (3x float)
+            writer.write_float(pos[0])
+            writer.write_float(pos[1])
+            writer.write_float(pos[2])
+            
+            # Orientation (3x float)
+            writer.write_float(orient[0])
+            writer.write_float(orient[1])
+            writer.write_float(orient[2])
+            
+            # Velocity (3x float)
+            writer.write_float(vel[0])
+            writer.write_float(vel[1])
+            writer.write_float(vel[2])
+            
+            # Float properties
+            writer.write_float(ping)
+            writer.write_float(pong)
+            
+            # Integer properties
+            writer.write_byte(hp)
+            writer.write_int(inp)
+            writer.write_int(action)
+            writer.write_byte(tool)
 
 cdef class ServerBlockAction(Loader):
     id: int = 39
@@ -3326,8 +3397,31 @@ cdef class CreateEntity(Loader):
 cdef class ServerBlockItem:
     pass
 
-cdef class Entity:
-    pass
+cdef class Entity(Loader):
+    id: int = 21
+    compress_packet: bool = False
+    cdef public:
+        int entity_id
+        Vector3 position
+        Vector3 velocity
+        float yaw, radius, fuse
+        IntVector3 color
+        int type, player_id, state, face, ugc_mode
+        list float_properties, int_properties
+
+    def __init__(self):
+        self.position = Vector3()
+        self.velocity = Vector3()
+        self.color = IntVector3()
+        self.float_properties = []
+        self.int_properties = []
+        
+    cpdef read(self, ByteReader reader):
+        pass # TODO: Implement packet structure
+        
+    cpdef write(self, ByteWriter writer):
+        pass # TODO: Implement packet structure
+
 
 cdef class PacketLoader:
     pass
@@ -3335,3 +3429,28 @@ cdef class PacketLoader:
 
 # Alias for compatibility
 item = AddServer
+
+# Populate CLIENT_LOADERS
+import sys
+
+CLIENT_LOADERS = {}
+
+def _init_loaders():
+    current_module = sys.modules[__name__]
+    for name in dir(current_module):
+        obj = getattr(current_module, name)
+        try:
+            # Check if it's a class and subclass of Loader (but not Loader itself)
+            # Accessing .id on the class might be tricky if it's not a python attribute
+            # We check if it has 'id' attribute.
+            if isinstance(obj, type) and issubclass(obj, Loader) and obj is not Loader:
+                if hasattr(obj, 'id'):
+                    # Create a dummy instance to read the ID if necessary, or read from class
+                    # For cdef classes, class attributes might be readable.
+                    # If not, we instantiate. 
+                    # Most packets have id initialized.
+                    CLIENT_LOADERS[obj.id] = obj
+        except Exception:
+            pass
+
+_init_loaders()

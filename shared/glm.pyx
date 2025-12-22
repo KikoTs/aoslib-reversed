@@ -38,6 +38,15 @@ cdef class Vector3:
     @z.setter
     def z(self, double value):
         self.cpp_obj.z = value
+
+    @property
+    def xyz(self):
+        return (self.x, self.y, self.z)
+    
+    @xyz.setter
+    def xyz(self, value):
+        self.x, self.y, self.z = value
+
     
     cpdef Vector3 copy(self):
         cdef Vector3 result = Vector3(0, 0, 0)
@@ -201,6 +210,24 @@ cdef class IntVector3:
     @z.setter
     def z(self, int value):
         self.cpp_obj.z = value
+
+    @property
+    def xyz(self):
+        return (self.x, self.y, self.z)
+    
+    @xyz.setter
+    def xyz(self, value):
+        self.x, self.y, self.z = value
+
+    @property
+    def rgb(self):
+        return (self.x, self.y, self.z)
+
+    @rgb.setter
+    def rgb(self, value):
+        self.x, self.y, self.z = value
+
+
     
     cpdef IntVector3 copy(self):
         cdef IntVector3 result = IntVector3(0, 0, 0)

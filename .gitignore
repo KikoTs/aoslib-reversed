@@ -20,7 +20,7 @@ include/
 !original_func/aoslib/*
 
 aosdump/*
-
+./aosdump/*
 old/
 test/
 packs/
@@ -32,3 +32,6 @@ packs/
 .vs/
 .idea/
 vs/
+
+*.bak
+*.old

@@ -1,0 +1,30 @@
+{
+    "interface": "0.0.0.0",
+    "port": 32887,
+    "name": "Dev Server",
+    "max_players": 8,
+    "map": "maps/ArcticBase.vxl",
+    "team1": {
+        "name": "Blue",
+        "color": [
+            44,
+            117,
+            179
+        ]
+    },
+    "team2": {
+        "name": "Green",
+        "color": [
+            137,
+            179,
+            44
+        ]
+    },
+    "fog_color": [
+        128,
+        232,
+        255
+    ],
+    "mode": "ctf",
+    "respawn_time": 5
+}

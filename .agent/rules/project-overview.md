@@ -1,0 +1,30 @@
+---
+trigger: always_on
+---
+
+# Ace Of Spades Library Reverse Engineering Project
+
+## Project Purpose
+This project aims to reverse engineer Ace Of Spades 1.x libraries, specifically focusing on packets and server logic with the goal of remaking a server for the game.
+
+## Project Structure
+- **aosdump/**: Contains the existing compiled binary (original implementation)
+  - **aoslib/**: Original game library implementation
+  - **shared/**: Original shared components
+- **aoslib/**: Our new implementation of the game library
+- **shared/**: Our new implementation of shared components
+- **build/**: Compiled versions of our new implementation
+- [test_packets.py](mdc:test_packets.py): Test script that compares original vs new implementation
+
+## Testing Methodology
+The project uses a dual-testing approach to validate packet implementations:
+1. Python 2: `py2 ./test_packets.py` - Tests against the original implementation
+2. Python 3: `py ./test_packets.py` - Tests against our new implementation
+
+The test script automatically adjusts paths based on Python version to test the appropriate implementation.
+
+## Key Components
+- **Packets**: The [test_packets.py](mdc:test_packets.py) file contains implementations of various packet types used in the game
+- **ByteWriter/ByteReader**: Utility classes for serializing/deserializing packet data
+- Each packet test function creates a packet with test values, serializes it, then deserializes it to verify correctness
+
