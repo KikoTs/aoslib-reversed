@@ -101,12 +101,26 @@ class GameMode:
 
     def get_spawn_point(self, player: 'connection.ServerConnection') -> Tuple[float, float, float]:
         x, y, z = self.get_random_pos(player.team)
-        return x + 0.5, y + 0.5, z - 2
+        # VXL Z (0=Top, 63=Bottom). Physics is also Z-Down (0=Top).
+        # z is the index of the solid block.
+        # We want to spawn ABOVE it (lower Z index).
+        world_z = max(0, z - 2.5) # Spawn 2.5 blocks above the solid block
+        print(f"Spawn Debug: Map(x={x}, y={y}, z={z}) -> Player(x={x+0.5}, y={y+0.5}, z={world_z})")
+        return x + 0.5, y + 0.5, float(world_z)
 
     def get_random_pos(self, team) -> Tuple[int, int, int]:
         sections = self.protocol.map.width() // 8
-        offset = team.id * (self.protocol.map.width() - (sections * 2))
+        team_idx = 1 if team.id == constants.TEAM.TEAM2 else 0
+        offset = team_idx * (self.protocol.map.width() - (sections * 2))
+        
+        # DEBUG: Check if map has ANY solid blocks at the center
+        test_x, test_y = 256, 256
+        test_z = self.protocol.map.get_z(test_x, test_y)
+        test_solid = self.protocol.map.get_solid(test_x, test_y, 62)
+        print(f"DEBUG: Map check at ({test_x},{test_y}): get_z={test_z}, solid@62={test_solid}")
+        
         x, y, z = self.protocol.map.get_random_pos(0 + offset, 0, (sections * 2) + offset, self.protocol.map.width())
+        print(f"DEBUG: get_random_pos returned ({x},{y},{z})")
         return x, y, z
 
     # Hooks

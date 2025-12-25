@@ -1,11 +1,12 @@
 {
     "interface": "0.0.0.0",
-    "port": 32887,
-    "name": "Dev Server",
+    "port": 27015,
+    "name": "KikoTs Ace.py <3",
     "max_players": 8,
-    "map": "maps/ArcticBase.vxl",
+    "map": "maps/CityOfChicago.vxl",
+    "map_name": "City of Chicago",
     "team1": {
-        "name": "Blue",
+        "name": "TEAM1_COLOR",
         "color": [
             44,
             117,
@@ -13,7 +14,7 @@
         ]
     },
     "team2": {
-        "name": "Green",
+        "name": "TEAM2_COLOR",
         "color": [
             137,
             179,
@@ -21,10 +22,38 @@
         ]
     },
     "fog_color": [
-        128,
-        232,
-        255
+        66,
+        66,
+        66
     ],
     "mode": "ctf",
-    "respawn_time": 5
+    "respawn_time": 5,
+    "light_color": [
+        180,
+        192,
+        220
+    ],
+    "light_direction": [
+        0.0,
+        0.796875,
+        0.203125
+    ],
+    "back_light_color": [
+        64,
+        64,
+        64
+    ],
+    "back_light_direction": [
+        0.296875,
+        -0.59375,
+        -0.09375
+    ],
+    "ambient_light_color": [
+        52,
+        56,
+        64
+    ],
+    "ambient_light_intensity": 0.203125,
+    "gravity": 1.0,
+    "time_scale": 1.0
 }

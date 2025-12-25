@@ -18,6 +18,9 @@ Module-level functions:
     - sphere_in_frustum, parse_constant_overrides
 """
 
+
+from libc.math cimport sin, cos
+
 # ============================================================================
 # Module-level state
 # ============================================================================
@@ -142,7 +145,8 @@ cdef class CChunk:
     def z2(self):
         return self._z2
     
-    cpdef void delete(self):
+    cpdef void delete_chunk(self):
+        """Delete this chunk (renamed from 'delete' to avoid C++ keyword conflict)"""
         pass
     
     cpdef void draw(self):
@@ -168,6 +172,12 @@ cdef class VXL:
     cdef public object minimap_texture
     cdef public str name
     cdef bint _initialized
+    # Column storage for network transmission
+    cdef public list columns
+    cdef public bint ready
+    cdef public int estimated_size
+    cdef public dict map_info
+    cdef bytes _raw_data
     
     def __init__(self, object arg1=None, object arg2=None, int data_size=0, int detail_level=2):
         self._x_size = 512
@@ -178,12 +188,21 @@ cdef class VXL:
         self.minimap_texture = None
         self.name = "Unknown"
         self._initialized = True
+        
+        # Initialize column storage (512x512 grid of byte columns)
+        self.columns = [[b"" for _ in range(512)] for _ in range(512)]
+        self.ready = False
+        self.estimated_size = 0
+        self.map_info = {}
+        self._raw_data = b""
 
         if isinstance(arg1, (bytes, bytearray)):
-            # VXLMap(data, metadata) usage
+            # VXL(data, metadata) usage
             if isinstance(arg2, dict):
+                self.map_info = arg2
                 self.name = arg2.get("name", "Unknown")
-            # TODO: Load map from data?
+            # Load map data into columns
+            self.load_vxl(arg1)
 
     
     def __repr__(self):
@@ -199,14 +218,84 @@ cdef class VXL:
         return self._z_size
 
     cpdef object get_random_pos(self, int x1, int y1, int x2, int y2):
-        # Stub implementation to allow server start
-        # Returns (x, y, z) tuple
+        """Get a random valid spawn position within the given bounds.
+        
+        Uses direct random sampling within the bounding box to ensure
+        unbiased distribution of spawn points.
+        """
         import random
-        cdef int x = random.randint(x1, x2)
-        cdef int y = random.randint(y1, y2)
-        cdef int z = 0 # Surface?
-        # TODO: Implement actual raycast/check for solid ground
-        return (x, y, z)
+        
+        cdef int attempts = 0
+        cdef int max_attempts = 100
+        cdef int rx, ry, rz
+        cdef int temp_z
+        
+        # Ensure bounds are correct (min < max)
+        cdef int min_x = min(x1, x2)
+        cdef int max_x = max(x1, x2)
+        cdef int min_y = min(y1, y2)
+        cdef int max_y = max(y1, y2)
+        
+        # Clamp to map dimensions
+        min_x = max(0, min_x)
+        max_x = min(self._x_size - 1, max_x)
+        min_y = max(0, min_y)
+        max_y = min(self._y_size - 1, max_y)
+        
+        # Main loop: Try random positions
+        while attempts < max_attempts:
+            rx = random.randint(min_x, max_x)
+            ry = random.randint(min_y, max_y)
+            
+            temp_z = self.get_z(rx, ry)
+            
+            # Validity check:
+            # 1. Not too deep (z < MAP_Z - 2)
+            # 2. Block is solid
+            # 3. Not water
+            # 4. Space above is clear
+            if (temp_z < self._z_size - 2 and
+                self.get_solid(rx, ry, temp_z) and
+                not self.is_water(rx, ry, temp_z) and
+                not self.get_solid(rx, ry, temp_z - 1) and
+                not self.get_solid(rx, ry, temp_z - 2)):
+                
+                return (rx, ry, temp_z)
+            
+            attempts += 1
+            
+        # Fallback: Scan center of the requested area
+        cdef int center_x = (min_x + max_x) // 2
+        cdef int center_y = (min_y + max_y) // 2
+        cdef int search_radius = 25
+        cdef int sx, sy
+        
+        for sx in range(center_x - search_radius, center_x + search_radius):
+            for sy in range(center_y - search_radius, center_y + search_radius):
+                if sx < min_x or sx > max_x or sy < min_y or sy > max_y:
+                    continue
+                    
+                temp_z = self.get_z(sx, sy)
+                if (temp_z < self._z_size - 2 and 
+                    self.get_solid(sx, sy, temp_z) and
+                    not self.is_water(sx, sy, temp_z)):
+                    return (sx, sy, temp_z)
+                        
+        # Final fallback: return center (risky but better than crash)
+        return (center_x, center_y, self.get_z(center_x, center_y))
+
+    cpdef bint is_water(self, int x, int y, int z):
+        """Check if block is water based on color."""
+        cdef unsigned int color = self._blocks.get((x, y, z), 0)
+        if color == 0: return False
+        
+        # Extract RGB (Format is 0xAARRGGBB in our code)
+        cdef int r = (color >> 16) & 0xFF
+        cdef int g = (color >> 8) & 0xFF
+        cdef int b = color & 0xFF
+        
+        # Water check from AceMap
+        return (b > 180 and r < 100 and g < 150) or (b > r + g)
     
     # Block manipulation
     cpdef object add_point(self, int x, int y, int z, tuple color_tuple):
@@ -248,6 +337,48 @@ cdef class VXL:
             self._blocks[key] = color
         return None
     
+    cpdef bint build_point(self, int x, int y, int z, object color):
+        """Build a block at the given position with the given color (int or tuple)."""
+        cdef unsigned int color_int
+        cdef int r, g, b
+        
+        if x < 0 or x >= self._x_size or y < 0 or y >= self._y_size or z < 0 or z >= self._z_size:
+            return False
+            
+        if isinstance(color, tuple):
+            if len(color) >= 3:
+                r, g, b = color[0], color[1], color[2]
+                color_int = (r << 16) | (g << 8) | b
+            else:
+                color_int = 0xFFFFFF
+        elif isinstance(color, int):
+            color_int = <unsigned int>color
+        else:
+            try:
+                # Try to access rgb attribute if it exists (e.g. KV6 color object)
+                if hasattr(color, 'rgb'):
+                    color_val = color.rgb
+                    if isinstance(color_val, tuple):
+                        r, g, b = color_val[0], color_val[1], color_val[2]
+                        color_int = (r << 16) | (g << 8) | b
+                    else:
+                        color_int = <unsigned int>color_val
+                else:
+                    color_int = 0xFFFFFF
+            except:
+                color_int = 0xFFFFFF
+                
+        self._blocks[(x, y, z)] = color_int
+        return True
+    
+    cpdef bint destroy_point(self, int x, int y, int z):
+        """Destroy (remove) a block at the given position."""
+        cdef tuple key = (x, y, z)
+        if key in self._blocks:
+            del self._blocks[key]
+            return True
+        return False
+    
     cpdef object check_only(self, int x, int y, int z):
         return None
     
@@ -272,6 +403,13 @@ cdef class VXL:
         if color == 0:
             return None
         return get_color_tuple(color, 0)
+    
+    cpdef int get_z(self, int x, int y):
+        cdef int z
+        for z in range(self._z_size):
+            if self.get_solid(x, y, z):
+                return z
+        return self._z_size - 1
     
     cpdef bint has_neighbors(self, int x, int y, int z, int min_neighbors=1, int check_water=0):
         return False
@@ -355,6 +493,78 @@ cdef class VXL:
             return (<CChunk>chunk).to_block_list()
         return []
     
+    # Block line traversal (3D Bresenham-like algorithm from acemap)
+    cpdef list block_line(self, int x1, int y1, int z1, int x2, int y2, int z2):
+        """Return list of block positions along a line from (x1,y1,z1) to (x2,y2,z2).
+        
+        Based on acemap C++ block_line implementation.
+        """
+        cdef list result = []
+        cdef int cx = x1, cy = y1, cz = z1
+        cdef int dx = x2 - x1, dy = y2 - y1, dz = z2 - z1
+        cdef int ixi, iyi, izi
+        cdef long dxi, dyi, dzi, lx, ly, lz
+        cdef int VSID = 512
+        
+        # Determine step direction
+        ixi = 1 if dx >= 0 else -1
+        iyi = 1 if dy >= 0 else -1
+        izi = 1 if dz >= 0 else -1
+        
+        # Calculate increments based on dominant axis
+        if abs(dx) >= abs(dy) and abs(dx) >= abs(dz):
+            dxi = 1024
+            lx = 512
+            dyi = 0x3fffffff // VSID if dy == 0 else abs(dx * 1024 // dy)
+            ly = dyi // 2
+            dzi = 0x3fffffff // VSID if dz == 0 else abs(dx * 1024 // dz)
+            lz = dzi // 2
+        elif abs(dy) >= abs(dz):
+            dyi = 1024
+            ly = 512
+            dxi = 0x3fffffff // VSID if dx == 0 else abs(dy * 1024 // dx)
+            lx = dxi // 2
+            dzi = 0x3fffffff // VSID if dz == 0 else abs(dy * 1024 // dz)
+            lz = dzi // 2
+        else:
+            dzi = 1024
+            lz = 512
+            dxi = 0x3fffffff // VSID if dx == 0 else abs(dz * 1024 // dx)
+            lx = dxi // 2
+            dyi = 0x3fffffff // VSID if dy == 0 else abs(dz * 1024 // dy)
+            ly = dyi // 2
+        
+        if ixi >= 0:
+            lx = dxi - lx
+        if iyi >= 0:
+            ly = dyi - ly
+        if izi >= 0:
+            lz = dzi - lz
+        
+        while True:
+            result.append((cx, cy, cz))
+            
+            if cx == x2 and cy == y2 and cz == z2:
+                break
+            
+            if lz <= lx and lz <= ly:
+                cz += izi
+                if cz < 0 or cz >= self._z_size:
+                    break
+                lz += dzi
+            elif lx < ly:
+                cx += ixi
+                if cx < 0 or cx >= VSID:
+                    break
+                lx += dxi
+            else:
+                cy += iyi
+                if cy < 0 or cy >= VSID:
+                    break
+                ly += dyi
+        
+        return result
+    
     # VXL serialization
     cpdef bytes generate_vxl(self, bint compress=True):
         """Generate VXL file data from current map
@@ -373,6 +583,109 @@ cdef class VXL:
     
     cpdef void cleanup(self):
         pass
+    
+    # =========================================================================
+    # Column storage and network transmission methods (integrated from wrapper)
+    # =========================================================================
+    
+    cpdef bint load_vxl(self, object data):
+        """Load VXL data using reference implementation approach.
+        
+        Follows Mari Kiri's original map.py logic:
+        - Row-major order: for y in [0..511], for x in [0..511]
+        - Read 4 bytes 'ns' header for each span:
+          * if ns[0] == 0, read (ns[2] - ns[1] + 1)*4 color bytes and break
+          * else read (ns[0]-1)*4 color bytes (no break)
+        - Track lowest_point for older 0.x map format detection
+        """
+        if isinstance(data, bytearray):
+            self._raw_data = bytes(data)
+        else:
+            self._raw_data = data
+        self.estimated_size = len(data)
+        
+        # Declare all Cython variables at the top
+        cdef int x, y
+        cdef int pos = 0
+        cdef bytes ns
+        cdef int lowest_point = 63
+        cdef int highest_point = 255
+        cdef int cand_lowest
+        cdef Py_ssize_t length = len(data)
+        cdef int finals, needed, block_size
+        
+        try:
+            # Go row-major: each row is y, each column is x
+            for y in range(512):
+                for x in range(512):
+                    # If we've exhausted the file, store a 4-byte dummy column
+                    if pos >= length:
+                        self.columns[y][x] = b"\x00\x00\x00\x00"
+                        continue
+
+                    col_data = bytearray()
+
+                    # Keep reading 4-byte blocks until we see ns[0] == 0
+                    while True:
+                        # If there's not even 4 bytes left, bail out
+                        if pos + 4 > length:
+                            break
+
+                        ns = data[pos:pos+4]
+                        pos += 4
+
+                        # Track lowest_point for older map format detection
+                        cand_lowest = max(ns[2], ns[1])
+                        if cand_lowest > lowest_point:
+                            lowest_point = cand_lowest
+                        if ns[1] < highest_point:
+                            highest_point = ns[1]
+
+                        # Always append this 4-byte header to col_data
+                        col_data += ns
+
+                        if ns[0] == 0:
+                            # If spans=0, read final color block => break
+                            finals = ns[2] - ns[1] + 1
+                            needed = 4 * finals
+                            if pos + needed > length:
+                                # Not enough data => partial read => break
+                                break
+                            col_data += data[pos:pos+needed]
+                            pos += needed
+                            break
+                        else:
+                            # If spans != 0, read (spans-1)*4 color bytes
+                            block_size = (ns[0] - 1) * 4
+                            if block_size < 0:
+                                # Protect from negative
+                                break
+                            if pos + block_size > length:
+                                break
+
+                            col_data += data[pos:pos+block_size]
+                            pos += block_size
+                            # Then we loop again until ns[0] == 0
+
+                    self.columns[y][x] = bytes(col_data)
+
+            # After reading all columns, if lowest_point==63 => older 0.x map => shift up by 64
+            # (Not implemented for now - most maps are 1.x format)
+            
+            print(f"VXL loaded: {self.estimated_size} bytes")
+            self.ready = True
+            return True
+
+        except Exception as e:
+            print(f"Map load error: {e}")
+            import traceback
+            traceback.print_exc()
+            self.ready = False
+            return False
+    
+    def get_chunker(self):
+        """Return a MapSyncChunker for network transmission"""
+        return MapSyncChunker(self)
 
 
 # ============================================================================
@@ -567,7 +880,7 @@ class MapSyncChunker:
 class MapPacker:
     """Packer that compresses map data using zlib"""
     def __init__(self, data):
-        self.serializer = MapSerializer(data)
+        self.serializer = MapSerializer(data, delta_mode=True)
         self.crc32 = zlib.crc32(b"")
     
     def iter(self):
@@ -609,111 +922,11 @@ class MapSerializer:
                         struct.pack("<II", x, y) + row[x]
                         for x in range(512)
                     )
+                else:
+                    s += b"".join(row)
             yield s
 
 
-class VXLMapWrapper:
-    """Wrapper class that adds column storage and chunker support to VXL"""
-    def __init__(self, data=None, map_info=None):
-        self._vxl = VXL(data, map_info)
-        self.columns = [[b"" for _ in range(512)] for _ in range(512)]
-        self.ready = False
-        self.estimated_size = 0
-        self.map_info = map_info or {}
-        self._raw_data = None
-        
-        if data is not None:
-            self.load_vxl(data)
-    
-    def load_vxl(self, data):
-        """Load VXL data and parse columns for network transmission"""
-        self._raw_data = bytes(data)
-        self.estimated_size = len(data)
-        
-        # Parse the VXL format into columns
-        pos = 0
-        length = len(data)
-        
-        try:
-            for y in range(512):
-                for x in range(512):
-                    if pos >= length:
-                        self.columns[y][x] = b"\x00\x00\x00\x00"
-                        continue
-                    
-                    col_data = bytearray()
-                    
-                    while True:
-                        if pos + 4 > length:
-                            break
-                        
-                        ns = data[pos:pos+4]
-                        pos += 4
-                        col_data += ns
-                        
-                        if ns[0] == 0:
-                            # Final span - read colors
-                            finals = ns[2] - ns[1] + 1
-                            needed = 4 * finals
-                            if pos + needed > length:
-                                break
-                            col_data += data[pos:pos+needed]
-                            pos += needed
-                            break
-                        else:
-                            # Additional span - read colors
-                            block_size = (ns[0] - 1) * 4
-                            if block_size < 0 or pos + block_size > length:
-                                break
-                            col_data += data[pos:pos+block_size]
-                            pos += block_size
-                    
-                    self.columns[y][x] = bytes(col_data)
-            
-            self.ready = True
-            return True
-        except Exception as e:
-            print(f"Map load error: {e}")
-            self.ready = False
-            return False
-    
-    def get_chunker(self):
-        """Return a MapSyncChunker for network transmission"""
-        return MapSyncChunker(self)
-    
-    # Delegate other methods to the underlying VXL
-    @property
-    def name(self):
-        return self.map_info.get("name", "Unknown")
-    
-    def width(self):
-        return self._vxl.width()
-    
-    def height(self):
-        return self._vxl.height()
-    
-    def depth(self):
-        return self._vxl.depth()
-    
-    def get_random_pos(self, x1, y1, x2, y2):
-        return self._vxl.get_random_pos(x1, y1, x2, y2)
-    
-    def get_solid(self, x, y, z):
-        return self._vxl.get_solid(x, y, z)
-    
-    def get_color(self, x, y, z):
-        return self._vxl.get_color(x, y, z)
-    
-    def set_point(self, x, y, z, solid, color=0):
-        return self._vxl.set_point(x, y, z, solid, color)
-    
-    def build_point(self, x, y, z, color):
-        return self._vxl.build_point(x, y, z, color)
-    
-    def destroy_point(self, x, y, z):
-        return self._vxl.destroy_point(x, y, z)
-
-
-# Compatibility alias - use wrapper for full functionality
-VXLMap = VXLMapWrapper
+# Compatibility alias - VXL now has all functionality built-in
+VXLMap = VXL
 

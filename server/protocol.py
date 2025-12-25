@@ -105,7 +105,8 @@ class ServerProtocol(base.BaseProtocol):
         for ply in self.players.values():
             ply.update(dt)
         self.mode.update(dt)
-        #self.world_update()
+        if self.loop_count % 1 == 0: # 60 ticks/s world update might be too much if not filtered, but let's try 1:1 first
+            self.world_update()
         
         # Update A2S data
         self.update_a2s_info()
@@ -191,13 +192,13 @@ class ServerProtocol(base.BaseProtocol):
         for conn in self.players.values():
             if not conn.name or conn.dead:
                 continue
-            # print("Position: ", conn.position.xyz)
-            # print("Orientation: ", conn.orientation)
-            # print("Velocity: ", conn.velocity)
-            # print("Ping: ", conn.ping_stime)
-            # print("Pong: ", conn.pong_stime)
-            # print("Health: ", conn.hp)
-            # print("Input Flags: ", conn.input_flags)
+            #print("Position: ", conn.position.xyz)
+            #print("Orientation: ", conn.orientation)
+            #print("Velocity: ", conn.velocity)
+            #print("Ping: ", conn.ping_stime)
+            #print("Pong: ", conn.pong_stime)
+            #print("Health: ", conn.hp)
+            #print("Input Flags: ", conn.input_flags)
             local_world_update[conn.id] = (conn.position.xyz, conn.orientation, conn.velocity, conn.ping_stime, conn.pong_stime, conn.hp, conn.input_flags, conn.action_flags, conn.tool_type)
         self.broadcast_loader(local_world_update, no_log=True)
 
@@ -205,7 +206,7 @@ class ServerProtocol(base.BaseProtocol):
         # Workaround for ByteWriter not exposing data directly in Python
         data = str(writer).encode('cp437')
 
-        if not no_log or True: # Debug: Always log
+        if not no_log: # Debug: Always log
             print("\n=== Broadcast Packet Debug ===")
             print(f"Packet Type: {loader.__class__.__name__}")
             print(f"Raw Data: {repr(data)}")
@@ -214,7 +215,7 @@ class ServerProtocol(base.BaseProtocol):
         data = bytes([jprefix]) + lzf_compress(data)
 
         if not no_log:
-                print(f"Compressed Hex Data: {' '.join(f'{b:02X}' for b in data)}")
+            print(f"Compressed Hex Data: {' '.join(f'{b:02X}' for b in data)}")
 
         if no_send:
             return
@@ -366,15 +367,15 @@ class ServerProtocol(base.BaseProtocol):
         state_data.team2_classes = self.team2.classes
 
 
-        state_data.light_color = (180, 192, 220)
-        state_data.light_direction = (0.0, 0.796875, 0.203125)
-        state_data.back_light_color = (64, 64, 64)
-        state_data.back_light_direction = (0.296875, -0.59375, -0.09375)
-        state_data.ambient_light_color = (52, 56, 64)
-        state_data.ambient_light_intensity = 0.203125
+        state_data.light_color = tuple(self.config.get("light_color", (180, 192, 220)))
+        state_data.light_direction = tuple(self.config.get("light_direction", (0.0, 0.796875, 0.203125)))
+        state_data.back_light_color = tuple(self.config.get("back_light_color", (64, 64, 64)))
+        state_data.back_light_direction = tuple(self.config.get("back_light_direction", (0.296875, -0.59375, -0.09375)))
+        state_data.ambient_light_color = tuple(self.config.get("ambient_light_color", (52, 56, 64)))
+        state_data.ambient_light_intensity = self.config.get("ambient_light_intensity", 0.203125)
 
-        state_data.gravity = 1.0
-        state_data.time_scale = 1.0
+        state_data.gravity = self.config.get("gravity", 1.0)
+        state_data.time_scale = self.config.get("time_scale", 1.0)
         state_data.score_limit = self.mode.score_limit
         state_data.mode_type = self.mode.id
         state_data.team_headcount_type = 6
@@ -388,7 +389,7 @@ class ServerProtocol(base.BaseProtocol):
         
 
         # Temporarily disabled entities for testing
-        state_data.entities = []  # [ent.to_loader() for ent in self.entities.values()]
+        state_data.entities = [ent.to_loader() for ent in self.entities.values()]
         #state_data.entities = []
         return state_data
 

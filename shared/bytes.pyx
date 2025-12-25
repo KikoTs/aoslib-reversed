@@ -54,6 +54,38 @@ cdef class ByteReader:
         self.pos += 1
         return b
 
+    cpdef short read_short(self):
+        if self.pos + 2 > self.length:
+            raise NoDataLeft("No data left to read")
+        cdef short v = struct.unpack('<h',
+            self.data[self.pos:self.pos + 2])[0]
+        self.pos += 2
+        return v
+
+    cpdef uint64_t read_uint64(self):
+        if self.pos + 8 > self.length:
+            raise NoDataLeft("No data left to read")
+        cdef uint64_t v = struct.unpack('<Q',
+            self.data[self.pos:self.pos + 8])[0]
+        self.pos += 8
+        
+        # For Python 3, wrap in Long to mimic Python 2.7 behavior
+        if sys.version_info[0] >= 3:
+            return Long(v)
+        return v
+
+    cpdef long read_int(self):
+        if self.pos + 4 > self.length:
+            raise NoDataLeft("No data left to read")
+        cdef long v = struct.unpack('<i',
+            self.data[self.pos:self.pos + 4])[0]
+        self.pos += 4
+        
+        # For Python 3, wrap in Long to mimic Python 2.7 behavior
+        if sys.version_info[0] >= 3 and abs(v) > 2**31-1:
+            return Long(v)
+        return v
+
     cpdef object read_float(self):
         if self.pos + 4 > self.length:
             raise NoDataLeft("No data left to read")
@@ -75,38 +107,6 @@ cdef class ByteReader:
             val = struct.unpack('<f', self.data[self.pos:self.pos + 4])[0]
             self.pos += 4
             return val
-
-    cpdef long read_int(self):
-        if self.pos + 4 > self.length:
-            raise NoDataLeft("No data left to read")
-        cdef long v = struct.unpack('<i',
-            self.data[self.pos:self.pos + 4])[0]
-        self.pos += 4
-        
-        # For Python 3, wrap in Long to mimic Python 2.7 behavior
-        if sys.version_info[0] >= 3 and abs(v) > 2**31-1:
-            return Long(v)
-        return v
-
-    cpdef short read_short(self):
-        if self.pos + 2 > self.length:
-            raise NoDataLeft("No data left to read")
-        cdef short v = struct.unpack('<h',
-            self.data[self.pos:self.pos + 2])[0]
-        self.pos += 2
-        return v
-
-    cpdef uint64_t read_uint64(self):
-        if self.pos + 8 > self.length:
-            raise NoDataLeft("No data left to read")
-        cdef uint64_t v = struct.unpack('<Q',
-            self.data[self.pos:self.pos + 8])[0]
-        self.pos += 8
-        
-        # For Python 3, wrap in Long to mimic Python 2.7 behavior
-        if sys.version_info[0] >= 3:
-            return Long(v)
-        return v
 
     cpdef object read_string(self):
         # Read until null terminator for Python 2.7 compatibility
@@ -177,6 +177,9 @@ cdef class ByteWriter:
             return b.decode('cp437')
         except:
             return b.decode('cp437', 'replace')
+
+    def __bytes__(self):
+        return bytes(self.data)
 
     cpdef void pad(self, unsigned char value):
         cdef int i

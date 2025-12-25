@@ -8,7 +8,7 @@ include = []
 link_args = []
 compile_args = ['-std=c++11']
 
-exclude_cpp = ['shared.bytes', 'shared.packet', 'aoslib.kv6', 'aoslib.vxl', 'aoslib.world']
+exclude_cpp = ['shared.bytes', 'shared.packet', 'aoslib.kv6', 'aoslib.world', 'aoslib.vxl']
 # special_case = ['aoslib.world']  # Special case for world, includes vxl_c.cpp but not world_c.cpp
 special_case = []
 

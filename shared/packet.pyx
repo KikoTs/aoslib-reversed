@@ -3,6 +3,7 @@ from libc.string cimport memcpy
 from libc.math cimport isnan, NAN
 from shared.bytes cimport ByteReader, ByteWriter
 from libc.stdint cimport uint64_t
+import struct
 import cython
 from shared.glm cimport Vector3, IntVector3
 cdef extern from "math.h":
@@ -2836,13 +2837,12 @@ cdef class InitialInfo(Loader): # Should be working :D
         self.checksum = reader.read_int()
         self.mode_key = reader.read_byte()
         self.map_is_ugc = reader.read_byte()
-        # Convert from signed to unsigned for query_port (preserve bit pattern)
         query_port_signed = reader.read_short()
         self.query_port = query_port_signed & 0xFFFF if query_port_signed < 0 else query_port_signed
         self.classic = reader.read_byte()
         self.enable_minimap = reader.read_byte()
         self.same_team_collision = reader.read_byte()
-        self.max_draw_distance = reader.read_byte() # Check
+        self.max_draw_distance = reader.read_byte()
         self.enable_colour_picker = reader.read_byte()
         self.enable_colour_palette = reader.read_byte()
         self.enable_deathcam = reader.read_byte()
@@ -2850,66 +2850,53 @@ cdef class InitialInfo(Loader): # Should be working :D
         self.enable_spectator = reader.read_byte()
         self.exposed_teams_always_on_minimap = reader.read_byte()
         self.enable_numeric_hp = reader.read_byte()
-        self.texture_skin = reader.read_string()
+        reader.read_byte()  # texture_skin placeholder/padding
         self.beach_z_modifiable = reader.read_byte()
         self.enable_minimap_height_icons = reader.read_byte()
         self.enable_fall_on_water_damage = reader.read_byte()
         self.block_wallet_multiplier = fromfixed(reader.read_short())
         self.block_health_multiplier = fromfixed(reader.read_short())
 
-        # Tools
+        # Disabled Tools
         disabled_tools_size = reader.read_byte()
         for i in range(disabled_tools_size):
             disabled_tool = reader.read_byte()
             self.disabled_tools.append(disabled_tool)
 
-        # Classes
+        # Disabled Classes
         disabled_classes_size = reader.read_byte()
         for i in range(disabled_classes_size):
             disabled_class = reader.read_byte()
             self.disabled_classes.append(disabled_class)
 
-        # Movement Speed Multipliers
+        # Movement Speed Multipliers (as shorts)
         movement_speed_multipliers_size = reader.read_byte()
         for i in range(movement_speed_multipliers_size):
             movement_speed_multiplier = fromfixed(reader.read_short())
             self.movement_speed_multipliers.append(movement_speed_multiplier)
 
-        # UGC Prefab Sets
+        # UGC Prefab Sets (as bytes)
         ugc_prefab_sets_size = reader.read_byte()
         for i in range(ugc_prefab_sets_size):
-            ugc_prefab_set = reader.read_string()
+            ugc_prefab_set = reader.read_byte()
             self.ugc_prefab_sets.append(ugc_prefab_set)
-
-        # Loadout Overrides FUCK THIS FOR NOW!
-        #self.loadout_overrides = {}
-        #loadout_overrides_size = reader.read_short()
-        #for i in range(loadout_overrides_size):
-        #    key = reader.read_string()
-        #    value = reader.read_byte()
-        #    self.loadout_overrides[key] = value
 
         self.enable_player_score = reader.read_byte()
         self.server_name = reader.read_string()
 
-        # initial_info.ground_colors = [(1,1,1,1), (2,2,2,2)]
+        # Ground Colors (4 bytes per color: r, g, b, a)
         ground_colors_size = reader.read_byte()
         for i in range(ground_colors_size):
-            ground_color = reader.read_byte()
-            self.ground_colors.append(ground_color)
+            r = reader.read_byte()
+            g = reader.read_byte()
+            b = reader.read_byte()
+            a = reader.read_byte()
+            self.ground_colors.append((r, g, b, a))
+        reader.read_byte()  # Null terminator
 
-        if(ground_colors_size == 0): 
-            reader.read_byte()
-
-        # Ensure consistent boolean interpretation (0 or 1)
         self.allow_shooting_holding_intel = reader.read_byte() & 0xFF
         self.friendly_fire = reader.read_byte() & 0xFF
-        # custom_game_rules = [("test","test")]
-        custom_game_rules_size = reader.read_byte()
-        for i in range(custom_game_rules_size):
-            custom_game_rule = reader.read_string()
-            self.custom_game_rules.append(custom_game_rule)
-
+        reader.read_byte()  # Padding byte
         self.enable_corpse_explosion = reader.read_byte() & 0xFF
         self.ugc_mode = reader.read_byte() & 0xFF
 
@@ -2928,7 +2915,6 @@ cdef class InitialInfo(Loader): # Should be working :D
         writer.write_int(self.checksum)
         writer.write_byte(self.mode_key)
         writer.write_byte(self.map_is_ugc)
-        # Ensure query_port is properly encoded as unsigned
         writer.write_short(self.query_port & 0xFFFF)
         writer.write_byte(self.classic)
         writer.write_byte(self.enable_minimap)
@@ -2941,57 +2927,49 @@ cdef class InitialInfo(Loader): # Should be working :D
         writer.write_byte(self.enable_spectator)
         writer.write_byte(self.exposed_teams_always_on_minimap)
         writer.write_byte(self.enable_numeric_hp)
-        writer.write_string(self.texture_skin)
+        writer.write_byte(0x00)  # texture_skin placeholder/padding
         writer.write_byte(self.beach_z_modifiable)
         writer.write_byte(self.enable_minimap_height_icons)
         writer.write_byte(self.enable_fall_on_water_damage)
         writer.write_short(tofixed(self.block_wallet_multiplier))
         writer.write_short(tofixed(self.block_health_multiplier))
 
-        # Tools
+        # Disabled Tools
         writer.write_byte(len(self.disabled_tools))
         for disabled_tool in self.disabled_tools:
             writer.write_byte(disabled_tool)
 
-        # Classes
+        # Disabled Classes
         writer.write_byte(len(self.disabled_classes))
         for disabled_class in self.disabled_classes:
             writer.write_byte(disabled_class)
 
-        # Movement Speed Multipliers
+        # Movement Speed Multipliers (as shorts)
         writer.write_byte(len(self.movement_speed_multipliers))
         for movement_speed_multiplier in self.movement_speed_multipliers:
             writer.write_short(tofixed(movement_speed_multiplier))
 
-        # UGC Prefab Sets
+        # UGC Prefab Sets (as bytes)
         writer.write_byte(len(self.ugc_prefab_sets))
         for ugc_prefab_set in self.ugc_prefab_sets:
-            writer.write_string(ugc_prefab_set)
-
-        # Loadout Overrides FUCK THIS FOR NOW!
-        #writer.write_byte(len(self.loadout_overrides))
-        #for key, value in self.loadout_overrides.items():
-        #    writer.write_string(str(key))
-        #    writer.write_byte(int(value))
+            writer.write_byte(ugc_prefab_set)
 
         writer.write_byte(self.enable_player_score)
         writer.write_string(self.server_name)
 
-        # Ground Colors
+        # Ground Colors (4 bytes per color: r, g, b, a)
         writer.write_byte(len(self.ground_colors))
         for ground_color in self.ground_colors:
-            writer.write_byte(ground_color)
-
-        if(len(self.ground_colors) == 0): 
-            writer.write_byte(0)
+            if isinstance(ground_color, (tuple, list)):
+                for component in ground_color:
+                    writer.write_byte(component)
+            else:
+                writer.write_byte(ground_color)
+        writer.write_byte(0)  # Null terminator
 
         writer.write_byte(self.allow_shooting_holding_intel & 0xFF)
         writer.write_byte(self.friendly_fire & 0xFF)
-
-        writer.write_byte(len(self.custom_game_rules))
-        for custom_game_rule in self.custom_game_rules:
-            writer.write_string(custom_game_rule)
-
+        writer.write_byte(0x00)  # Padding byte
         writer.write_byte(self.enable_corpse_explosion & 0xFF)
         writer.write_byte(self.ugc_mode & 0xFF)
 
@@ -3081,18 +3059,18 @@ cdef class StateData(Loader): # Fixed?
         
         self.light_color = read_color(reader, True)
         
-        # Read light direction
-        light_x = fromfixed(reader.read_short())
-        light_y = fromfixed(reader.read_short())
+        # Read light direction (ZYX order)
         light_z = fromfixed(reader.read_short())
+        light_y = fromfixed(reader.read_short())
+        light_x = fromfixed(reader.read_short())
         self.light_direction = (light_x, light_y, light_z)
         
         self.back_light_color = read_color(reader, True)
         
-        # Read back light direction
-        back_light_x = fromfixed(reader.read_short())
-        back_light_y = fromfixed(reader.read_short())
+        # Read back light direction (ZYX order)
         back_light_z = fromfixed(reader.read_short())
+        back_light_y = fromfixed(reader.read_short())
+        back_light_x = fromfixed(reader.read_short())
         self.back_light_direction = (back_light_x, back_light_y, back_light_z)
         
         self.ambient_light_color = read_color(reader, True)
@@ -3107,7 +3085,15 @@ cdef class StateData(Loader): # Fixed?
         self.team1_name = reader.read_string()
         self.team1_color = read_color(reader, True)
         self.team1_score = reader.read_int()
-        self.team1_locked = reader.read_byte()
+        
+        cdef int team1_flags = reader.read_byte()
+        self.team1_locked = (team1_flags & 1) != 0
+        self.team1_can_see_team2 = (team1_flags & 2) != 0
+        self.team1_show_score = (team1_flags & 4) != 0
+        self.team1_show_max_score = (team1_flags & 8) != 0
+        self.team1_infinite_blocks = (team1_flags & 16) != 0
+        self.team1_locked_class = (team1_flags & 32) != 0
+        self.team1_locked_score = (team1_flags & 64) != 0
         
         # Team 1 classes
         team1_class_count = reader.read_byte()
@@ -3119,7 +3105,15 @@ cdef class StateData(Loader): # Fixed?
         self.team2_name = reader.read_string()
         self.team2_color = read_color(reader, True)
         self.team2_score = reader.read_int()
-        self.team2_locked = reader.read_byte()
+        
+        cdef int team2_flags = reader.read_byte()
+        self.team2_locked = (team2_flags & 1) != 0
+        self.team2_can_see_team1 = (team2_flags & 2) != 0
+        self.team2_show_score = (team2_flags & 4) != 0
+        self.team2_show_max_score = (team2_flags & 8) != 0
+        self.team2_infinite_blocks = (team2_flags & 16) != 0
+        self.team2_locked_class = (team2_flags & 32) != 0
+        self.team2_locked_score = (team2_flags & 64) != 0
         
         # Team 2 classes
         team2_class_count = reader.read_byte()
@@ -3127,58 +3121,50 @@ cdef class StateData(Loader): # Fixed?
         for i in range(team2_class_count):
             self.team2_classes.append(reader.read_byte())
         
-        # Additional team flags
-        self.lock_team_swap = reader.read_byte()    
-        self.lock_spectator_swap = reader.read_byte()
-        self.team1_can_see_team2 = reader.read_byte()
-        self.team2_can_see_team1 = reader.read_byte()
-        
-        # Team flags
-        self.team1_show_score = reader.read_byte()
-        self.team1_show_max_score = reader.read_byte()
-        self.team2_show_score = reader.read_byte()
-        self.team2_show_max_score = reader.read_byte()
-        self.team1_locked_class = reader.read_byte()
-        self.team1_locked_score = reader.read_byte()
-        self.team2_locked_class = reader.read_byte()
-        self.team2_locked_score = reader.read_byte()
-        self.team1_infinite_blocks = reader.read_byte()
-        self.team2_infinite_blocks = reader.read_byte()
-        
-        # Map ended
-        self.has_map_ended = reader.read_byte()
+        # Global flags
+        cdef int lock_flags = reader.read_byte()
+        self.lock_team_swap = (lock_flags & 1) != 0
+        self.lock_spectator_swap = (lock_flags & 2) != 0
         
         # Prefabs
         prefab_count = reader.read_byte()
+        reader.read_byte() # Padding
         self.prefabs = []
         for i in range(prefab_count):
             self.prefabs.append(reader.read_string())
             
         # Entities
         entity_count = reader.read_byte()
+        reader.read_byte() # Padding
         self.entities = []
         for i in range(entity_count):
             # We need a way to instantiate the correct entity type
             # For now, skip this part as we would need entity factories
+            # Assuming Entity.read would consume bytes if implemented
             pass
             
         # Screenshot cameras points
         point_count = reader.read_byte()
         self.screenshot_cameras_points = []
         for i in range(point_count):
-            x = fromfixed(reader.read_short())
-            y = fromfixed(reader.read_short())
+            # ZYX order
             z = fromfixed(reader.read_short())
+            y = fromfixed(reader.read_short())
+            x = fromfixed(reader.read_short())
             self.screenshot_cameras_points.append((x, y, z))
             
         # Screenshot cameras rotations
         rotation_count = reader.read_byte()
         self.screenshot_cameras_rotations = []
         for i in range(rotation_count):
-            x = fromfixed(reader.read_short())
-            y = fromfixed(reader.read_short())
+            # ZYX order
             z = fromfixed(reader.read_short())
+            y = fromfixed(reader.read_short())
+            x = fromfixed(reader.read_short())
             self.screenshot_cameras_rotations.append((x, y, z))
+            
+        # Map ended
+        self.has_map_ended = reader.read_byte()
 
     cpdef write(self, ByteWriter writer):
         writer.write_byte(self.id)
@@ -3297,10 +3283,14 @@ cdef class WorldUpdate(Loader):
     cdef public:
         int loop_count
         dict player_updates
+        list updated_entities
+        list rocket_turrets
 
     def __init__(self, ByteReader reader=None):
         self.loop_count = 0
         self.player_updates = {}
+        self.updated_entities = []
+        self.rocket_turrets = []
         if reader is not None:
             self.read(reader)
 
@@ -3310,46 +3300,73 @@ cdef class WorldUpdate(Loader):
     def clear(self):
         self.loop_count = 0
         self.player_updates = {}
+        self.updated_entities = []
+        self.rocket_turrets = []
 
     cpdef read(self, ByteReader reader):
         pass
 
     cpdef write(self, ByteWriter writer):
         writer.write_byte(self.id)
-        writer.write_int(self.loop_count)
-        writer.write_byte(len(self.player_updates))
+        # Loop Count (Int / 4 bytes)
+        writer.write_int(self.loop_count) 
+        
+        # Player Count (Short / 2 bytes)
+        writer.write_short(len(self.player_updates))
+        
         for pid, data in self.player_updates.items():
-            # data: (pos, orient, vel, ping, pong, hp, input, action, tool)
-            # We explicitly expand the tuple to ensure we use all data
-            # If tuple size mismatches, this will raise error, which is good for debugging
+            # data: (pos, orient, vel, ping, pong, hp, inp, action, tool)
             pos, orient, vel, ping, pong, hp, inp, action, tool = data
             
             writer.write_byte(pid)
             
-            # Position (3x float)
-            writer.write_float(pos[0])
-            writer.write_float(pos[1])
-            writer.write_float(pos[2])
+            # Vectors: Position, Orientation, Velocity (Raw Floats / 12 bytes each)
+            # User reference uses struct.pack('<fff', ...)
+            writer.write(struct.pack('<fff', pos[0], pos[1], pos[2]))
+            writer.write(struct.pack('<fff', orient[0], orient[1], orient[2]))
+            writer.write(struct.pack('<fff', vel[0], vel[1], vel[2]))
             
-            # Orientation (3x float)
-            writer.write_float(orient[0])
-            writer.write_float(orient[1])
-            writer.write_float(orient[2])
+            # Ping (Short / 2 bytes)
+            # User ref: writer.write_uint16(self.ping_stime)
+            # Assumption: ping is already in ms approx or doesn't need scaling if input is float
+            writer.write_short(tofixed(ping) if isinstance(ping, float) else ping) 
             
-            # Velocity (3x float)
-            writer.write_float(vel[0])
-            writer.write_float(vel[1])
-            writer.write_float(vel[2])
+            # Pong (Int / 4 bytes - User specified Uint32)
+            # User ref: writer.write_uint32(self.pong_stime)
+            writer.write_int(int(pong * 1000))
             
-            # Float properties
-            writer.write_float(ping)
-            writer.write_float(pong)
+            # Health (Short / 2 bytes - User specified Uint16)
+            # User ref: writer.write_uint16(self.health)
+            writer.write_short(hp)
             
-            # Integer properties
-            writer.write_byte(hp)
-            writer.write_int(inp)
-            writer.write_int(action)
-            writer.write_byte(tool)
+            # Input (Byte)
+            writer.write_byte(inp)             
+            
+            # Action (Byte)
+            writer.write_byte(action)
+            
+            # Tool (Byte) - "No fucking idea maybe shoot?"
+            writer.write_byte(0)
+            
+            # Tool (Byte)
+            writer.write_byte(0)            
+            
+            # Padding Floats (Fixed Point / 2 bytes each)
+            # User ref: writer.write_float(0)
+            writer.write_short(0)
+            writer.write_short(0)
+            writer.write_short(0)
+            
+            # Final Byte
+            writer.write_byte(0)
+            
+        # Entity Count (Short / 2 bytes)
+        writer.write_short(len(self.updated_entities))
+        
+        # Turret Count (Short / 2 bytes)
+        writer.write_short(len(self.rocket_turrets))
+
+
 
 cdef class ServerBlockAction(Loader):
     id: int = 39

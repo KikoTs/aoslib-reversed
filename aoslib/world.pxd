@@ -11,6 +11,8 @@ cpdef tuple get_next_cube(tuple pos, tuple direction)
 cpdef tuple get_random_vector()
 cpdef bint is_centered(tuple pos)
 cpdef object parse_constant_overrides(object arg)
+cdef bint clipbox(object map_obj, float x, float y, float z)
+cdef bint clipworld(object map_obj, long x, long y, long z)
 
 # ============================================================================
 # World Class
@@ -61,6 +63,9 @@ cdef class Player(Object):
     cdef public bint jetpack_passive
     cdef public bint jump
     cdef public bint jump_this_frame
+    cdef public float last_climb
+    cdef public float timer
+    cdef public float fall_damage_this_frame
     cdef public bint left
     cdef public tuple orientation
     cdef public bint parachute
@@ -111,7 +116,10 @@ cdef class Player(Object):
     cpdef void set_position(self, object x, object y, object z)
     cpdef void set_velocity(self, object x, object y, object z)
     cpdef void set_walk(self, bint walk)
+    cpdef void update_class_multipliers(self, int class_id)
     cpdef void update(self, float dt)
+    cdef void boxclipmove(self, double dt, double time)
+    cdef void reposition(self, double dt, double time)
 
 # ============================================================================
 # PlayerMovementHistory Class

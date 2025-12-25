@@ -213,7 +213,7 @@ class ServerConnection(base.BaseConnection):
         
         # Add game mode information
         initial_info.server_name = self.protocol.server_name
-        initial_info.map_name = self.protocol.config["map"]
+        initial_info.map_name = self.protocol.config["map_name"]
         initial_info.filename = "London" # Hard coded, why the fuck check the client map when the server sends it over the air any fucking way?
         initial_info.checksum = 592649088 # For same reason as above
         initial_info.mode_key = self.protocol.mode.id
@@ -300,15 +300,18 @@ class ServerConnection(base.BaseConnection):
             self.send_loader(conn.to_existing_player())
 
     def spawn(self, x: float=None, y: float=None, z: float=None):
+        print(f"DEBUG: spawn params: x={x}, y={y}, z={z}")
         pos = self.protocol.mode.get_spawn_point(self) if x is None or y is None or z is None else (x, y, z)
-
+        print(f"DEBUG: spawn pos after get_spawn_point: {pos}")
+        print(f"Spawning player {self.name} at {pos}")
         hook = self.try_player_spawn(self, x, y, z)
         if hook is False:
+            print("DEBUG: spawn cancelled by hook")
             return
         pos = pos if hook is None else hook
-
+        print(f"DEBUG: final spawn pos: {pos}")
         create_player.x, create_player.y, create_player.z = pos
-        create_player.ori_x, create_player.ori_y, create_player.ori_z = (0, 0, 255.5)
+        create_player.ori_x, create_player.ori_y, create_player.ori_z = (0, 0, 0)
 
         create_player.loadout = self.loadout_next
         create_player.prefabs = self.prefabs_next
@@ -330,7 +333,7 @@ class ServerConnection(base.BaseConnection):
             self.wo = world.Player(self.protocol.map)
 
         self.wo.set_dead(False)
-        self.wo.set_position(*pos, reset=True)
+        self.wo.set_position(*pos)
         # Update player's class-specific multipliers
         self.wo.update_class_multipliers(self.class_id)
         self.restock()
@@ -345,7 +348,7 @@ class ServerConnection(base.BaseConnection):
         self.hp = max(0, min(int(hp), 255))
         set_hp.hp = self.hp
         set_hp.damage_type = reason
-        set_hp.source.xyz = source
+        set_hp.source_x, set_hp.source_y, set_hp.source_z = source
         self.send_loader(set_hp)
 
     def kill(self, kill_type: KILL=KILL.FALL_KILL, killer: 'ServerConnection'=None, respawn_time=None):
@@ -457,7 +460,7 @@ class ServerConnection(base.BaseConnection):
             self.protocol.map.destroy_point(ax, ay, az)
 
         block_build.player_id = self.id
-        block_build.xyz = (x, y, z)
+        block_build.x, block_build.y, block_build.z = x, y, z
         block_build.block_type = 1
         self.protocol.broadcast_loader(block_build)
         self.protocol.loop.create_task(self.on_destroy_block(self, x, y, z, destroy_type))
@@ -475,7 +478,7 @@ class ServerConnection(base.BaseConnection):
 
         if self.protocol.map.build_point(x, y, z, self.block.color.rgb):
             block_build.player_id = self.id
-            block_build.xyz = (x, y, z)
+            block_build.x, block_build.y, block_build.z = x, y, z
             block_build.block_type = ACTION.BUILD
             self.protocol.broadcast_loader(block_build)
             self.protocol.loop.create_task(self.on_build_block(self, x, y, z))
@@ -508,8 +511,8 @@ class ServerConnection(base.BaseConnection):
         #     x, y, z = hook
 
         block_line.player_id = self.id
-        block_line.xyz1 = x1, y1, z1
-        block_line.xyz2 = x2, y2, z2
+        block_line.x1, block_line.y1, block_line.z1 = x1, y1, z1
+        block_line.x2, block_line.y2, block_line.z2 = x2, y2, z2
         self.protocol.broadcast_loader(block_line)
         return True
 
@@ -520,7 +523,7 @@ class ServerConnection(base.BaseConnection):
             if z is None:
                 z = self.protocol.map.get_z(x, y) - 2
         print(f"Setting pos to {x}, {y}, {z}")
-        self.wo.set_position(x, y, z, reset)
+        self.wo.set_position(x, y, z)
         position_data.data.xyz = x, y, z
         self.send_loader(position_data)
 
@@ -564,20 +567,18 @@ class ServerConnection(base.BaseConnection):
     def recv_client_data(self, loader: packets.ClientData):
         if self.dead: return
 
-        walk = loader.up, loader.down, loader.left, loader.right
-        animation = loader.jump, loader.crouch, loader.sneak, loader.sprint
-
+        # Update tool selection
         self.tool_type = loader.tool_id
-
-        # px = loader.data.p.x
-        # py = loader.data.p.y
-        # pz = loader.data.p.z
         
+        # Orientation
         ox = loader.o_x
         oy = loader.o_y
         oz = loader.o_z
 
+        # Track previous jump state for rising edge detection
+        was_jumping = (self.input_flags & 16) != 0
 
+        # Update input flags
         input_flags = 0
         if loader.up: input_flags |= 1
         if loader.down: input_flags |= 2
@@ -589,29 +590,32 @@ class ServerConnection(base.BaseConnection):
         if loader.sprint: input_flags |= 128
         self.input_flags = input_flags
 
-        # self.action_flags = loader.action_flags # This probably doesn't exist either
+        # Update action flags
         action_flags = 0
         if loader.primary: action_flags |= 1
         if loader.secondary: action_flags |= 2
-        # ... other flags?
         self.action_flags = action_flags
-        # if util.bad_float(px, py, pz, ox, oy, oz):
-        #     print("Bad float")
-        #     #return self.disconnect()
 
-        # if glm.Vector3(px, py, pz).sq_distance(self.wo.position) >= 3 ** 2:
-        #     self.set_position(reset=False)
-        #     print("Setting position")
-        # else:
-        #     self.wo.set_position(px, py, pz)
+        if self.wo:
+            # Update WorldObject/Player inputs
+            self.wo.up = loader.up
+            self.wo.down = loader.down
+            self.wo.left = loader.left
+            self.wo.right = loader.right
+            
+            self.wo.crouch = loader.crouch
+            self.wo.sneak = loader.sneak
+            self.wo.sprint = loader.sprint
+            
+            # Application of jumping (Rising edge)
+            if loader.jump and not was_jumping:
+                self.wo.jump_this_frame = True
+            
+            self.wo.set_orientation((ox, oy, oz))
 
-        self.wo.set_orientation((ox, oy, oz))
-        
-        # TODO: verify set_walk and set_animation on server Authoritative movement
-        # self.wo.set_walk(*walk)
-        # self.protocol.loop.create_task(self.on_walk_change(self, *walk))
-        # self.wo.set_animation(*animation)
-        # self.protocol.loop.create_task(self.on_animation_change(self, *animation))
+            # Update weapon inputs
+            self.tool.set_primary(loader.primary)
+            self.tool.set_secondary(loader.secondary)
 
         loader.player_id = self.id
         self.protocol.broadcast_loader(loader, predicate=lambda conn: conn is not self, no_log=True)
@@ -900,10 +904,10 @@ class ServerConnection(base.BaseConnection):
         if self.dead: return
 
         self.wo.update(dt)
-        # TODO: Implement fall damage in Player physics
-        fall_dmg = 0
+        # Implement fall damage in Player physics
+        fall_dmg = getattr(self.wo, 'fall_damage_this_frame', 0.0)
         if fall_dmg > 0:
-            self.hurt(fall_dmg)
+            self.hurt(int(fall_dmg), cause=types.KILL.FALL_KILL)
         self.tool.update(dt)
 
     def to_existing_player(self) -> packets.ExistingPlayer:
@@ -955,19 +959,32 @@ class ServerConnection(base.BaseConnection):
 
     @property
     def position(self) -> glm.Vector3:
-        return self.wo.position
+        if self.wo:
+            return glm.Vector3(*self.wo.position)
+        return glm.Vector3()
 
     @property
     def eye(self) -> glm.Vector3:
-        return self.wo.eye
+        if self.wo:
+            pos = glm.Vector3(*self.wo.position)
+            # Z is up, eye is roughly 2.4 units above feet?
+            # PLAYER_STANDING_HEIGHT is 2.7. 
+            # Let's assume eye is height - something small or define constant.
+            # Using 2.4 based on typical AoS values.
+            return pos + glm.Vector3(0, 0, 2.4) 
+        return glm.Vector3()
 
     @property
     def orientation(self) -> glm.Vector3:
-        return self.wo.orientation
+        if self.wo:
+            return glm.Vector3(*self.wo.orientation)
+        return glm.Vector3(1, 0, 0) # Default forward
 
     @property
     def velocity(self) -> glm.Vector3:
-        return self.wo.velocity
+        if self.wo:
+            return glm.Vector3(*self.wo.velocity)
+        return glm.Vector3()
 
     @property
     def dead(self) -> bool:

@@ -990,21 +990,134 @@ def test_state_data(): # not 1:1
     current_packet.time_scale = 1.0
     return current_packet
 
-def test_packets():
-    current_packet = test_state_data()  # Testing StateData
 
-    writer = ByteWriter()
-    current_packet.write(writer)
+def compare_packets(p1, p2):
+    if type(p1) != type(p2):
+        print("Packet types differ: {} vs {}".format(type(p1), type(p2)))
+        return False
     
-    hex_output = toHex(str(writer))
-    print("=== StateData Hex Output (Py{}) ===".format(sys.version_info[0]))
-    print(hex_output)
-    print("=== Length: {} bytes ===".format(len(str(writer))))
+    match = True
+    # Get all attributes
+    attributes = dir(p1)
     
-    # Save to file for comparison
-    version = "py3" if sys.version_info[0] >= 3 else "py2"
-    with open("statedata_" + version + ".txt", "w") as f:
-        f.write(hex_output)
-    print("Saved to statedata_{}.txt".format(version))
+    for attr in attributes:
+        if attr.startswith("_"): continue
+        if attr in ('write', 'read', 'data'): continue
+        if callable(getattr(p1, attr)): continue
+        
+        # Check if p2 has this attribute
+        if not hasattr(p2, attr):
+            print("New packet missing attribute: {}".format(attr))
+            match = False
+            continue
+            
+        val1 = getattr(p1, attr)
+        val2 = getattr(p2, attr)
+        
+        # Handle lists/tuples comparison
+        if isinstance(val1, (list, tuple)) and isinstance(val2, (list, tuple)):
+            if len(val1) != len(val2):
+                print("Mismatch in {} length: {} vs {}".format(attr, len(val1), len(val2)))
+                match = False
+            else:
+                for i, (v1, v2) in enumerate(zip(val1, val2)):
+                    if isinstance(v1, float) and isinstance(v2, float):
+                        if abs(v1 - v2) > 0.001:
+                             print("Mismatch in {}[{}]: {} vs {}".format(attr, i, v1, v2))
+                             match = False
+                    elif v1 != v2:
+                         print("Mismatch in {}[{}]: {} vs {}".format(attr, i, v1, v2))
+                         match = False
+        
+        # Handle float comparison
+        elif isinstance(val1, float) and isinstance(val2, float):
+            if abs(val1 - val2) > 0.001:
+                 print("Mismatch in {}: {} vs {}".format(attr, val1, val2))
+                 match = False
+        elif val1 != val2:
+             print("Mismatch in {}: {} vs {}".format(attr, val1, val2))
+             match = False
+             
+    return match
+
+def test_world_update():
+    current_packet = packet.WorldUpdate()
+    pos = (1.0, 2.0, 3.0)
+    orient = (0.0, 1.0, 0.0)
+    vel = (0.1, 0.2, 0.3)
+    ping = 0.05
+    pong = 0.05
+    hp = 100
+    inp = 0
+    action = 0
+    tool = 1
+    # Note: In Py3 WorldUpdate, assignment might handle adding to loop_count or dict
+    current_packet.player_updates[1] = (pos, orient, vel, ping, pong, hp, inp, action, tool)
+    return current_packet
+
+test_packets_list = [
+    test_state_data,
+    # test_world_update # Requires fixing player_updates attribute in Py2 WorldUpdate wrapper
+]
+
+def test_packets():
+    for test_func in test_packets_list:
+        print("\n\nTesting Packet: {}".format(test_func.__name__))
+        current_packet = test_func()
+
+        writer = ByteWriter()
+        current_packet.write(writer)
+        
+        # USE raw bytes to avoid string encoding issues
+        try:
+            raw_data = bytes(writer)
+        except:
+             # Fallback for Py2 if bytes(writer) not implemented or mocked behavior
+             if sys.version_info[0] < 3:
+                 raw_data = str(writer)
+             else:
+                 raw_data = bytes(writer.data)
+
+        hex_output = toHex(raw_data)
+        print("=== Hex Output (Py{}) ===".format(sys.version_info[0]))
+        print(hex_output)
+        print("=== Length: {} bytes ===".format(len(raw_data)))
+        
+        # Initialize reader with raw bytes
+        reader = ByteReader(raw_data)
+        
+        # Skip packet ID
+        if reader.data_left():
+            reader.read_byte()
+        
+        new_packet = current_packet.__class__()
+        try:
+            new_packet.read(reader)
+        except Exception as e:
+            print("FAILED to read packet: {}".format(e))
+            import traceback
+            traceback.print_exc()
+            continue
+        
+        print("\n=== Read Packet Values ===")
+        for attr in sorted(dir(new_packet)):
+            if attr.startswith("_") or attr in ('read', 'write', 'data', 'id', 'compress_packet') or callable(getattr(new_packet, attr)):
+                continue
+            val = getattr(new_packet, attr)
+            print("{}: {}".format(attr, val))
+        print("==========================\n")
+        
+        print("\n=== Verifying Read Packet ===")
+        if compare_packets(current_packet, new_packet):
+            print("SUCCESS: Read packet matches original packet!")
+        else:
+            print("FAILURE: Read packet differs from original packet!")
+            
+        # Save to file
+        version = "py3" if sys.version_info[0] >= 3 else "py2"
+        fname = "{}_{}.txt".format(test_func.__name__, version)
+        with open(fname, "w") as f:
+            f.write(hex_output)
+        print("Saved to {}".format(fname))
 
 test_packets()
