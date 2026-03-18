@@ -2,1226 +2,1323 @@
 # cython: boundscheck=False
 # cython: wraparound=False
 """
-World Module - Ace of Spades World Physics & Entities
-
-Core game logic for player movement, physics simulation, and game objects.
+Native-shaped restoration of aoslib.world.
 """
 
-import math
-import random
-from libc.math cimport sqrt, floor as c_floor, sin, cos
-from shared import constants
+import json
+import sys
+import time
+import math as _math
+import random as _random
 
-# Physics Constants (from C++ implementation)
-DEF GRAVITY = 32.0  # Note: logic implies +32 if Z is Down? C++ uses dt directly for gravity-like behavior.
-# Actually, the C++ code uses `this->v.z += dt` and `f = dt + 1`. 
-# It does NOT use a GRAVITY constant in update().
-# But let's keep the user provided constants.
-DEF FALL_SLOW_DOWN = 0.24
-DEF FALL_DAMAGE_VELOCITY = 0.58
+from shared.constants import *
+from shared import glm as _glm
+from aoslib import vxl as _vxl
 
 
+_GLOBAL_GRAVITY = 1.0
+_CUBE_SQ_DISTANCE = 0.0
+_RAY_DEFAULT_LENGTH = 128.0
+_PLAYER_RADIUS = 0.45
+_PLAYER_HEIGHT = 2.7
+_PLAYER_CROUCH_HEIGHT = 1.8
+_PLAYER_CROUCH_SHIFT = 0.9
 
-DEF FALL_DAMAGE_SCALAR = 4096
 
-# Old constants (keeping for reference or other classes)
-DEF OLD_GRAVITY = -32.0
-# ...
+def A2():
+    return None
 
-# ============================================================================
-# Module-level functions
-# ============================================================================
 
-cpdef object A2(object arg):
-    """Passthrough function for compatibility"""
-    return arg
+def parse_constant_overrides():
+    return None
 
-# Helper functions for physics
-cdef bint clipbox(object map_obj, float x, float y, float z):
-    """Check collision for box physics"""
-    # map_obj should be VXL
-    if map_obj is None:
-        return False
-        
-    cdef int MAP_X = 512
-    cdef int MAP_Y = 512
-    cdef int MAP_Z = 64
-    
-    if x < 0 or x >= MAP_X or y < 0 or y >= MAP_Y:
-        return True
-    if z < 0:
-        return False
 
-    cdef int sz = int(z)
-    if sz == MAP_Z - 1:
-        sz -= 1
-    elif sz >= MAP_Z:
-        return True
-        
-    return map_obj.get_solid(int(x), int(y), sz)
+def floor(value):
+    return float(_math.floor(value))
 
-cdef bint clipworld(object map_obj, long x, long y, long z):
-    """Check collision for world (grenades etc)"""
-    if map_obj is None:
-        return False
-        
-    cdef int MAP_X = 512
-    cdef int MAP_Y = 512
-    cdef int MAP_Z = 64 # Assume standard map size
 
-    if x < 0 or x >= MAP_X or y < 0 or y >= MAP_Y:
-        return False
-    if z < 0:
-        return False
+def get_random_vector():
+    z = (_random.random() * 2.0) - 1.0
+    theta = _random.random() * (_math.pi * 2.0)
+    radius = _math.sqrt(max(0.0, 1.0 - (z * z)))
+    return _glm.Vector3(_math.cos(theta) * radius, _math.sin(theta) * radius, z)
 
-    cdef int sz = int(z)
-    if sz == 63:
-        sz = 62
-    elif sz >= 63:
-        return True
-    elif sz < 0:
-        return False
-        
-    return map_obj.get_solid(x, y, sz)
 
-cpdef object cube_line(int x1, int y1, int z1, int x2, int y2, int z2):
-    """
-    Traverse a line through voxel space using 3D DDA algorithm
-    Returns list of (x, y, z) coordinates along the line
-    """
-    cdef list result = []
-    cdef int dx = abs(x2 - x1)
-    cdef int dy = abs(y2 - y1)
-    cdef int dz = abs(z2 - z1)
-    cdef int n = 1 + dx + dy + dz
-    
-    cdef int sx = 1 if x2 > x1 else (0 if x2 == x1 else -1)
-    cdef int sy = 1 if y2 > y1 else (0 if y2 == y1 else -1)
-    cdef int sz = 1 if z2 > z1 else (0 if z2 == z1 else -1)
-    
-    cdef int x = x1
-    cdef int y = y1
-    cdef int z = z1
-    
-    cdef int x_err = dx
-    cdef int y_err = dy
-    cdef int z_err = dz
-    
-    cdef int i
-    for i in range(n):
+def get_next_cube(position, face):
+    cube = _as_intvector3(position)
+    face = int(face)
+    if face == 0:
+        cube.x -= 1
+    elif face == 1:
+        cube.x += 1
+    elif face == 2:
+        cube.y -= 1
+    elif face == 3:
+        cube.y += 1
+    elif face == 4:
+        cube.z -= 1
+    elif face == 5:
+        cube.z += 1
+    return cube
+
+
+def cube_line(x1, y1, z1, x2, y2, z2):
+    result = []
+    dx = abs(x2 - x1)
+    dy = abs(y2 - y1)
+    dz = abs(z2 - z1)
+    steps = 1 + dx + dy + dz
+    sx = 1 if x2 > x1 else (0 if x2 == x1 else -1)
+    sy = 1 if y2 > y1 else (0 if y2 == y1 else -1)
+    sz = 1 if z2 > z1 else (0 if z2 == z1 else -1)
+    x = x1
+    y = y1
+    z = z1
+    x_err = dx
+    y_err = dy
+    z_err = dz
+
+    for _ in range(steps):
         result.append((x, y, z))
-        
-        # Advance axis with highest error
-        # On tie, priority depends on axis magnitudes  
         if x_err > y_err and x_err > z_err:
             x += sx
-            x_err -= n
+            x_err -= steps
         elif y_err > x_err and y_err > z_err:
             y += sy
-            y_err -= n
+            y_err -= steps
         elif z_err > x_err and z_err > y_err:
             z += sz
-            z_err -= n
+            z_err -= steps
         else:
-            # Tie - use delta-based priority
             if dz >= dy and dz >= dx:
-                # Z dominant: Z > Y > X
                 if z_err >= y_err and z_err >= x_err:
                     z += sz
-                    z_err -= n
+                    z_err -= steps
                 elif y_err >= x_err:
                     y += sy
-                    y_err -= n
+                    y_err -= steps
                 else:
                     x += sx
-                    x_err -= n
+                    x_err -= steps
             elif dy >= dx:
-                # Y dominant: Y > X > Z (Note: Original comment said Y > X > Z, let's stick to that)
                 if y_err >= x_err and y_err >= z_err:
                     y += sy
-                    y_err -= n
+                    y_err -= steps
                 elif x_err >= z_err:
                     x += sx
-                    x_err -= n
+                    x_err -= steps
                 else:
                     z += sz
-                    z_err -= n
+                    z_err -= steps
             else:
-                # X dominant: X > Y > Z
                 if x_err >= y_err and x_err >= z_err:
                     x += sx
-                    x_err -= n
+                    x_err -= steps
                 elif y_err >= z_err:
                     y += sy
-                    y_err -= n
+                    y_err -= steps
                 else:
                     z += sz
-                    z_err -= n
-        
+                    z_err -= steps
         x_err += dx
         y_err += dy
         z_err += dz
-    
     return result
 
-cpdef float floor(float val):
-    """Floor function - returns float to match original"""
-    return c_floor(val)
 
-cpdef tuple get_next_cube(tuple pos, tuple direction):
-    """Get the next cube position in a given direction"""
-    cdef float x = pos[0] + direction[0]
-    cdef float y = pos[1] + direction[1]
-    cdef float z = pos[2] + direction[2]
-    return (int(c_floor(x)), int(c_floor(y)), int(c_floor(z)))
+def is_centered(x, y, z, o_x, o_y, o_z, x2, y2, z2, tolerance):
+    side_len = _math.sqrt((o_x * o_x) + (o_y * o_y))
+    if side_len > 0.0:
+        side_x = -o_y / side_len
+        side_y = o_x / side_len
+    else:
+        side_x = 0.0
+        side_y = 0.0
 
-cpdef tuple get_random_vector():
-    """Get a random normalized direction vector"""
-    cdef float theta = random.random() * 2.0 * 3.14159265359
-    cdef float phi = random.random() * 3.14159265359
-    cdef float sp = sin(phi)
-    return (sp * cos(theta), sp * sin(theta), cos(phi))
+    dx = x2 - x
+    dy = y2 - y
+    dz = z2 - z
+    denom = (o_z * dz) + (o_y * dy) + (o_x * dx)
+    if denom == 0.0:
+        return False
 
-cpdef bint is_centered(tuple pos):
-    """Check if position is centered in a block"""
-    cdef float fx = pos[0] - c_floor(pos[0])
-    cdef float fy = pos[1] - c_floor(pos[1])
-    return abs(fx - 0.5) < 0.1 and abs(fy - 0.5) < 0.1
+    along = ((side_y * dy) + (side_x * dx)) / denom
+    limit = tolerance / denom
+    if not (along - limit < 0.0 < along + limit):
+        return False
 
-cpdef object parse_constant_overrides(object arg):
-    """Parse constant overrides (compatibility)"""
-    return arg
+    across = (
+        (dz * ((o_x * side_y) - (o_y * side_x)))
+        + (dy * (o_z * side_x))
+        - (dx * (o_z * side_y))
+    ) / denom
+    return across - limit < 0.0 < across + limit
 
 
-# ============================================================================
-# World Class
-# ============================================================================
+def _type_error(name, expected, value):
+    raise TypeError(
+        "Argument '%s' has incorrect type (expected %s, got %s)"
+        % (name, expected, type(value).__name__)
+    )
+
+
+def _as_vector3(value, name="value"):
+    if isinstance(value, _glm.Vector3):
+        return _glm.Vector3(value.x, value.y, value.z)
+    if value is None:
+        _type_error(name, "Vector3", value)
+    try:
+        x = value.x
+        y = value.y
+        z = value.z
+    except AttributeError:
+        try:
+            x, y, z = value
+        except Exception:
+            _type_error(name, "Vector3", value)
+    return _glm.Vector3(float(x), float(y), float(z))
+
+
+def _as_intvector3(value, name="value"):
+    if isinstance(value, _glm.IntVector3):
+        return _glm.IntVector3(value.x, value.y, value.z)
+    if value is None:
+        _type_error(name, "IntVector3", value)
+    try:
+        x = value.x
+        y = value.y
+        z = value.z
+    except AttributeError:
+        try:
+            x, y, z = value
+        except Exception:
+            _type_error(name, "IntVector3", value)
+    return _glm.IntVector3(int(x), int(y), int(z))
+
+
+def _vector_set(target, source):
+    target.x = source.x
+    target.y = source.y
+    target.z = source.z
+    return target
+
+
+def _normalize_xy(vector):
+    mag = _math.sqrt((vector.x * vector.x) + (vector.y * vector.y))
+    if mag <= 0.0:
+        return 0.0, 0.0
+    return vector.x / mag, vector.y / mag
+
+
+def _within_bounds(x, y):
+    return 0 <= x < MAP_X and 0 <= y < MAP_Y
+
+
+def _is_solid(map_obj, x, y, z):
+    if not _within_bounds(x, y):
+        return True
+    if z < 0 or z >= MAP_Z or map_obj is None:
+        return False
+    return bool(map_obj.get_solid(int(x), int(y), int(z)))
+
+
+def _water_solid(z):
+    return int(z) >= int(Z_ABOVE_WATERPLANE)
+
+
+def _raycast(world_map, position, direction, length, accurate, water_is_solid):
+    if world_map is None:
+        return None
+
+    start = _as_vector3(position, "position")
+    direction = _as_vector3(direction, "direction")
+    mag = _math.sqrt((direction.x * direction.x) + (direction.y * direction.y) + (direction.z * direction.z))
+    if mag <= 0.0:
+        return None
+
+    dx = direction.x / mag
+    dy = direction.y / mag
+    dz = direction.z / mag
+    x = int(_math.floor(start.x))
+    y = int(_math.floor(start.y))
+    z = int(_math.floor(start.z))
+
+    step_x = 1 if dx > 0.0 else -1 if dx < 0.0 else 0
+    step_y = 1 if dy > 0.0 else -1 if dy < 0.0 else 0
+    step_z = 1 if dz > 0.0 else -1 if dz < 0.0 else 0
+
+    next_x = ((x + (step_x > 0)) - start.x) / dx if step_x else float("inf")
+    next_y = ((y + (step_y > 0)) - start.y) / dy if step_y else float("inf")
+    next_z = ((z + (step_z > 0)) - start.z) / dz if step_z else float("inf")
+    delta_x = abs(1.0 / dx) if step_x else float("inf")
+    delta_y = abs(1.0 / dy) if step_y else float("inf")
+    delta_z = abs(1.0 / dz) if step_z else float("inf")
+
+    last_face = 0
+    travelled = 0.0
+    while travelled <= length:
+        solid = False
+        if _within_bounds(x, y) and 0 <= z < MAP_Z:
+            solid = bool(world_map.get_solid(x, y, z))
+            if not solid and water_is_solid and _water_solid(z):
+                solid = True
+        if solid:
+            block = _glm.IntVector3(x, y, z)
+            if accurate:
+                hit = _glm.Vector3(start.x + (dx * travelled), start.y + (dy * travelled), start.z + (dz * travelled))
+                return hit, block, last_face
+            return block, last_face
+
+        if next_x <= next_y and next_x <= next_z:
+            travelled = next_x
+            next_x += delta_x
+            x += step_x
+            last_face = 0 if step_x > 0 else 1
+        elif next_y <= next_x and next_y <= next_z:
+            travelled = next_y
+            next_y += delta_y
+            y += step_y
+            last_face = 2 if step_y > 0 else 3
+        else:
+            travelled = next_z
+            next_z += delta_z
+            z += step_z
+            last_face = 4 if step_z > 0 else 5
+
+    return None
+
 
 cdef class World:
-    """Main world container - holds map and manages game objects"""
-    
-    def __init__(self, object map_obj):
-        self.map = map_obj
-        self.timer = 0.0
-        self._gravity = GRAVITY
-        self.objects = []
-    
-    cpdef object create_object(self, object obj_type):
-        """Create a new object in the world"""
-        obj = obj_type(self)
-        self.objects.append(obj)
+    cdef object _map
+    cdef double _timer
+    cdef list _objects
+
+    def __init__(self, map):
+        global _GLOBAL_GRAVITY
+        if map is not None and not isinstance(map, _vxl.VXL):
+            _type_error("map", "aoslib.vxl.VXL", map)
+        _GLOBAL_GRAVITY = 1.0
+        self._map = map
+        self._timer = 0.0
+        self._objects = []
+
+    property map:
+        def __get__(self):
+            return self._map
+        def __set__(self, value):
+            if value is not None and not isinstance(value, _vxl.VXL):
+                _type_error("map", "aoslib.vxl.VXL", value)
+            self._map = value
+
+    property timer:
+        def __get__(self):
+            return self._timer
+        def __set__(self, value):
+            self._timer = float(value)
+
+    def set_gravity(self, gravity):
+        global _GLOBAL_GRAVITY
+        _GLOBAL_GRAVITY = float(gravity)
+
+    def get_gravity(self):
+        return float(_GLOBAL_GRAVITY)
+
+    def create_object(self, cls, *args, **kwargs):
+        obj = cls(self, *args, **kwargs)
+        self._objects.append(obj)
         return obj
-    
-    cpdef tuple get_block_face_center_position(self, object pos, int face):
-        """Get the center position of a block face (0-5: +x,-x,+y,-y,+z,-z)"""
-        if isinstance(pos, tuple) or isinstance(pos, list):
-            x, y, z = pos
-        else:
-            x, y, z = pos.x, pos.y, pos.z
-            
-        cdef float fx = x + 0.5
-        cdef float fy = y + 0.5
-        cdef float fz = z + 0.5
-        
-        if face == 0:    # +X
-            return (x + 1.0, fy, fz)
-        elif face == 1:  # -X
-            return (float(x), fy, fz)
-        elif face == 2:  # +Y
-            return (fx, y + 1.0, fz)
-        elif face == 3:  # -Y
-            return (fx, float(y), fz)
-        elif face == 4:  # +Z
-            return (fx, fy, z + 1.0)
-        else:            # -Z
-            return (fx, fy, float(z))
-    
-    cpdef float get_gravity(self):
-        """Get world gravity"""
-        return self._gravity
-    
-    cpdef void set_gravity(self, float gravity):
-        """Set world gravity"""
-        self._gravity = gravity
-    
-    cpdef bint get_solid(self, int x, int y, int z):
-        """Check if block is solid at position"""
-        if self.map is None:
-            return False
-        if x < 0 or x >= 512 or y < 0 or y >= 512 or z < 0 or z >= 64:
-            return z >= 63  # Water at bottom
-        return self.map.get_solid(x, y, z)
-    
-    cpdef object hitscan(self, tuple start, tuple direction, float max_distance):
-        """Perform hitscan raycast using 3D DDA algorithm"""
-        cdef float x = start[0]
-        cdef float y = start[1]
-        cdef float z = start[2]
-        cdef float dx = direction[0]
-        cdef float dy = direction[1]
-        cdef float dz = direction[2]
-        
-        cdef int map_x = int(c_floor(x))
-        cdef int map_y = int(c_floor(y))
-        cdef int map_z = int(c_floor(z))
-        
-        cdef float side_dist_x = 0.0
-        cdef float side_dist_y = 0.0
-        cdef float side_dist_z = 0.0
-        
-        cdef float delta_dist_x = abs(1.0 / dx) if dx != 0 else 1e30
-        cdef float delta_dist_y = abs(1.0 / dy) if dy != 0 else 1e30
-        cdef float delta_dist_z = abs(1.0 / dz) if dz != 0 else 1e30
-        
-        cdef float perp_wall_dist = 0.0
-        
-        cdef int step_x, step_y, step_z
-        
-        cdef int hit = 0
-        cdef int side = 0 # 0=x, 1=y, 2=z
-        
-        if dx < 0:
-            step_x = -1
-            side_dist_x = (x - map_x) * delta_dist_x
-        else:
-            step_x = 1
-            side_dist_x = (map_x + 1.0 - x) * delta_dist_x
-            
-        if dy < 0:
-            step_y = -1
-            side_dist_y = (y - map_y) * delta_dist_y
-        else:
-            step_y = 1
-            side_dist_y = (map_y + 1.0 - y) * delta_dist_y
-            
-        if dz < 0:
-            step_z = -1
-            side_dist_z = (z - map_z) * delta_dist_z
-        else:
-            step_z = 1
-            side_dist_z = (map_z + 1.0 - z) * delta_dist_z
-            
-        # DDA Loop
-        while hit == 0 and perp_wall_dist < max_distance:
-            if side_dist_x < side_dist_y:
-                if side_dist_x < side_dist_z:
-                    side_dist_x += delta_dist_x
-                    map_x += step_x
-                    side = 0
-                else:
-                    side_dist_z += delta_dist_z
-                    map_z += step_z
-                    side = 2
-            else:
-                if side_dist_y < side_dist_z:
-                    side_dist_y += delta_dist_y
-                    map_y += step_y
-                    side = 1
-                else:
-                    side_dist_z += delta_dist_z
-                    map_z += step_z
-                    side = 2
-            
-            # Check collision
-            if self.get_solid(map_x, map_y, map_z):
-                hit = 1
-                
-                # Calculate intersection point and normal
-                # Normal
-                nx, ny, nz = 0.0, 0.0, 0.0
-                if side == 0:
-                    perp_wall_dist = (map_x - x + (1 - step_x) / 2) / dx
-                    nx = -step_x
-                elif side == 1:
-                    perp_wall_dist = (map_y - y + (1 - step_y) / 2) / dy
-                    ny = -step_y
-                else:
-                    perp_wall_dist = (map_z - z + (1 - step_z) / 2) / dz
-                    nz = -step_z
-                    
-                # Exact hit position
-                hit_x = x + perp_wall_dist * dx
-                hit_y = y + perp_wall_dist * dy
-                hit_z = z + perp_wall_dist * dz
-                
-                return ((hit_x, hit_y, hit_z), (nx, ny, nz), perp_wall_dist)
-                
+
+    def update(self, dt):
+        self._timer += float(dt)
         return None
-    
-    cpdef object hitscan_accurate(self, tuple start, tuple direction, float max_distance):
-        """Accurate hitscan using DDA algorithm"""
-        return self.hitscan(start, direction, max_distance)
-    
-    cpdef void update(self, float dt):
-        """Update world and all objects"""
-        self.timer += dt
-        
-        # Update all objects
-        cdef list to_remove = []
-        for obj in self.objects:
-            obj.update(dt)
-            if obj.deleted:
-                to_remove.append(obj)
-        
-        # Remove deleted objects
-        for obj in to_remove:
-            self.objects.remove(obj)
 
+    def hitscan(self, position, direction):
+        return _raycast(self._map, position, direction, _RAY_DEFAULT_LENGTH, False, False)
 
-# ============================================================================
-# Base Object Class
-# ============================================================================
+    def hitscan_accurate(self, position, direction, length=_RAY_DEFAULT_LENGTH, water_is_solid=False):
+        return _raycast(self._map, position, direction, float(length), True, bool(water_is_solid))
+
+    def get_block_face_center_position(self, position, face):
+        cube = _as_intvector3(position)
+        face = int(face)
+        x = cube.x + 0.5
+        y = cube.y + 0.5
+        z = cube.z + 0.5
+        if face == 0:
+            x = cube.x
+        elif face == 1:
+            x = cube.x + 1.0
+        elif face == 2:
+            y = cube.y
+        elif face == 3:
+            y = cube.y + 1.0
+        elif face == 4:
+            z = cube.z
+        elif face == 5:
+            z = cube.z + 1.0
+        return _glm.Vector3(x, y, z)
+
 
 cdef class Object:
-    """Base class for all world objects"""
-    
-    def __init__(self, object world=None):
-        self.deleted = False
-        self.name = ""
-        self.position = (0.0, 0.0, 0.0)
-        self.world = world
-    
-    cpdef bint check_valid_position(self, tuple pos):
-        """Check if position is valid (not inside solid block)"""
-        if self.world is None:
+    cdef object _parent
+    cdef object _name
+    cdef object _position
+    cdef bint _deleted
+
+    def __init__(self, parent, *args, **kwargs):
+        if parent is not None and not isinstance(parent, World):
+            _type_error("parent", "aoslib.world.World", parent)
+        self._parent = parent
+        self._deleted = False
+        self._name = None
+        self._position = _glm.Vector3(0.0, 0.0, 0.0)
+        self.initialize(*args, **kwargs)
+
+    property name:
+        def __get__(self):
+            return self._name
+        def __set__(self, value):
+            self._name = value
+
+    property position:
+        def __get__(self):
+            return self._position
+        def __set__(self, value):
+            _vector_set(self._position, _as_vector3(value, "position"))
+
+    property deleted:
+        def __get__(self):
+            return bool(self._deleted)
+        def __set__(self, value):
+            self._deleted = bool(value)
+
+    def initialize(self, *args, **kwargs):
+        return None
+
+    def check_valid_position(self, position):
+        pos = _as_vector3(position, "position")
+        if pos.x < 0.0 or pos.x >= MAP_X or pos.y < 0.0 or pos.y >= MAP_Y:
+            return False
+        if pos.z < 0.0 or pos.z >= MAP_Z:
             return True
-        cdef int x = int(c_floor(pos[0]))
-        cdef int y = int(c_floor(pos[1]))
-        cdef int z = int(c_floor(pos[2]))
-        return not self.world.get_solid(x, y, z)
-    
-    cpdef void delete(self):
-        """Mark this object for deletion"""
-        self.deleted = True
-    
-    cpdef void initialize(self):
-        """Initialize object (called after creation)"""
-        pass
-    
-    cpdef void update(self, float dt):
-        """Update object (called each frame)"""
-        pass
+        if self._parent is None or self._parent.map is None:
+            return True
+        return not bool(self._parent.map.get_solid(int(pos.x), int(pos.y), int(pos.z)))
+
+    def delete(self):
+        self._deleted = True
+        self._parent = None
+        return None
+
+    def update(self, *args, **kwargs):
+        return None
 
 
-# ============================================================================
-# Player Class - Core Movement Physics
-# ============================================================================
+def _player_height(crouch, wade):
+    if crouch and not wade:
+        return _PLAYER_CROUCH_HEIGHT
+    return _PLAYER_HEIGHT
+
+
+def _aabb_collides(map_obj, x, y, z, radius, height):
+    min_x = int(_math.floor(x - radius))
+    max_x = int(_math.floor(x + radius))
+    min_y = int(_math.floor(y - radius))
+    max_y = int(_math.floor(y + radius))
+    min_z = int(_math.floor(z))
+    max_z = int(_math.floor(z + height - 1e-6))
+
+    if max_x < 0 or max_y < 0 or min_x >= MAP_X or min_y >= MAP_Y:
+        return True
+
+    for bx in range(min_x, max_x + 1):
+        for by in range(min_y, max_y + 1):
+            for bz in range(min_z, max_z + 1):
+                if _is_solid(map_obj, bx, by, bz):
+                    return True
+    return False
+
+
+def _grounded(map_obj, position, crouch, wade):
+    height = _player_height(crouch, wade)
+    feet = position.z + height
+    sample_z = int(_math.floor(feet + 1e-4))
+    for bx in (int(_math.floor(position.x - _PLAYER_RADIUS)), int(_math.floor(position.x + _PLAYER_RADIUS))):
+        for by in (int(_math.floor(position.y - _PLAYER_RADIUS)), int(_math.floor(position.y + _PLAYER_RADIUS))):
+            if _is_solid(map_obj, bx, by, sample_z):
+                return True
+    return feet >= MAP_Z
+
+
+def _move_box(position, velocity, dt, map_obj, crouch, wade, can_climb):
+    height = _player_height(crouch, wade)
+    dx = velocity.x * dt * 32.0
+    dy = velocity.y * dt * 32.0
+    dz = velocity.z * dt * 32.0
+    steps = int(max(1.0, _math.ceil(max(abs(dx), abs(dy), abs(dz)) / 0.25)))
+    sx = dx / steps
+    sy = dy / steps
+    sz = dz / steps
+    collided_down = False
+
+    for _ in range(steps):
+        nx = position.x + sx
+        if not _aabb_collides(map_obj, nx, position.y, position.z, _PLAYER_RADIUS, height):
+            position.x = nx
+        elif can_climb and not _aabb_collides(map_obj, nx, position.y, position.z - 1.0, _PLAYER_RADIUS, height):
+            position.x = nx
+            position.z -= 1.0
+        else:
+            velocity.x = 0.0
+
+        ny = position.y + sy
+        if not _aabb_collides(map_obj, position.x, ny, position.z, _PLAYER_RADIUS, height):
+            position.y = ny
+        elif can_climb and not _aabb_collides(map_obj, position.x, ny, position.z - 1.0, _PLAYER_RADIUS, height):
+            position.y = ny
+            position.z -= 1.0
+        else:
+            velocity.y = 0.0
+
+        nz = position.z + sz
+        if not _aabb_collides(map_obj, position.x, position.y, nz, _PLAYER_RADIUS, height):
+            position.z = nz
+        else:
+            if sz > 0.0:
+                collided_down = True
+            velocity.z = 0.0
+
+    if position.z > MAP_Z:
+        position.z = float(MAP_Z)
+        velocity.z = 0.0
+        collided_down = True
+    return collided_down
+
+
+def _sign(value):
+    if value < 0.0:
+        return -1.0
+    if value > 0.0:
+        return 1.0
+    return 0.0
+
+
+def _collide_with_players(player, positions, dt):
+    if not positions:
+        return 0
+
+    position = player.position
+    velocity = player.velocity
+    own_height = _player_height(player.crouch, player.wade)
+    own_center_z = position.z + ((own_height - 0.45) - (0.5 * own_height))
+    scale = max(dt * 32.0, 1e-6)
+    collisions = 0
+
+    for item in positions:
+        try:
+            ox, oy, oz = item[:3]
+            other_height = float(item[3]) if len(item) >= 4 else _PLAYER_HEIGHT
+        except Exception:
+            continue
+
+        dx = (position.x + (velocity.x * scale)) - float(ox)
+        dy = (position.y + (velocity.y * scale)) - float(oy)
+        dist_sq = (dx * dx) + (dy * dy)
+        push = max(0.0, 0.9 - _math.sqrt(dist_sq))
+        if push <= 0.0:
+            continue
+
+        other_center_z = float(oz) + ((other_height - 0.45) - (0.5 * other_height))
+        vertical_overlap = max(0.0, ((0.5 * other_height) + (0.5 * own_height)) - abs(own_center_z - other_center_z))
+        if vertical_overlap <= 0.0:
+            continue
+
+        if vertical_overlap <= push:
+            velocity.z += (_sign(own_center_z - other_center_z) * (vertical_overlap / scale))
+        else:
+            length = _math.sqrt(dist_sq)
+            if length <= 0.0:
+                nx, ny = 1.0, 0.0
+            else:
+                nx = dx / length
+                ny = dy / length
+            velocity.x += nx * (push / scale)
+            velocity.y += ny * (push / scale)
+        collisions += 1
+
+    return collisions
+
+
+def _default_class_value(table, fallback):
+    try:
+        return table[CLASS_SOLDIER]
+    except Exception:
+        return fallback
+
 
 cdef class Player(Object):
-    """Player with full movement physics"""
-    
-    def __init__(self, object world):
-        super().__init__(world)
-        
-        # Input state
-        self.up = False
-        self.down = False
-        self.left = False
-        self.right = False
-        self.jump = False
-        self.crouch = False
-        self.sneak = False
-        self.sprint = False
-        self.jump_this_frame = False
-        
-        # Movement state
-        self.airborne = False
-        self.burdened = False
-        self.fall = False
-        self.hover = False
-        self.is_locked_to_box = False
-        self.jetpack = False
-        self.jetpack_active = False
-        self.jetpack_passive = False
-        self.parachute = False
-        self.parachute_active = False
-        self.wade = False
-        
-        self.orientation = (1.0, 0.0, 0.0)  # Forward direction
-        self.velocity = (0.0, 0.0, 0.0)
-        self.s = None
-        self.position = (256.0, 256.0, 32.0)  # Default spawn
-        
-        # Class multipliers (default soldier values)
-        # Class multipliers (initialize with Soldier defaults)
-        self.update_class_multipliers(0)
+    cdef object _velocity
+    cdef object _orientation
+    cdef object _s
+    cdef object _lock_box
+    cdef bint _alive
+    cdef bint _exploded
+    cdef bint _airborne
+    cdef bint _burdened
+    cdef bint _crouch
+    cdef bint _down
+    cdef bint _fall
+    cdef bint _hover
+    cdef bint _jetpack
+    cdef bint _jetpack_active
+    cdef bint _jetpack_passive
+    cdef bint _jump
+    cdef bint _jump_this_frame
+    cdef bint _left
+    cdef bint _parachute
+    cdef bint _parachute_active
+    cdef bint _right
+    cdef bint _sneak
+    cdef bint _sprint
+    cdef bint _up
+    cdef bint _wade
+    cdef double _fall_distance
+    cdef double _climb_timer
+    cdef double _accel_multiplier
+    cdef double _sprint_multiplier
+    cdef double _crouch_sneak_multiplier
+    cdef double _jump_multiplier
+    cdef double _water_friction
+    cdef double _fall_min_distance
+    cdef double _fall_max_distance
+    cdef double _fall_max_damage
+    cdef double _fall_on_water_multiplier
+    cdef double _climb_slowdown
+    cdef bint _can_sprint_uphill
 
-        self._can_sprint_uphill = False
-        self._climb_slowdown = 0.5
-        self._dead = False
+    def initialize(self):
+        self._name = "player"
+        self._position = _glm.Vector3(0.0, 0.0, 0.0)
+        self._velocity = _glm.Vector3(0.0, 0.0, 0.0)
+        self._orientation = _glm.Vector3(1.0, 0.0, 0.0)
+        self._s = _glm.Vector3(0.0, 1.0, 0.0)
+        self._lock_box = None
+        self._alive = True
         self._exploded = False
-        self._walk = False
-        self.last_climb = 0.0 # Time of last climb
-        self.s = (0.0, 1.0, 0.0) # Side vector
-        self.timer = 0.0
-        self.fall_damage_this_frame = 0.0
+        self._airborne = False
+        self._burdened = False
+        self._crouch = False
+        self._down = False
+        self._fall = False
+        self._hover = False
+        self._jetpack = False
+        self._jetpack_active = False
+        self._jetpack_passive = False
+        self._jump = False
+        self._jump_this_frame = False
+        self._left = False
+        self._parachute = False
+        self._parachute_active = False
+        self._right = False
+        self._sneak = False
+        self._sprint = False
+        self._up = False
+        self._wade = False
+        self._fall_distance = 0.0
+        self._climb_timer = 0.0
+        self._accel_multiplier = _default_class_value(CLASS_ACCEL_MULTIPLIER, 1.0)
+        self._sprint_multiplier = _default_class_value(CLASS_SPRINT_MULTIPLIER, 1.0)
+        self._crouch_sneak_multiplier = _default_class_value(CLASS_CROUCH_SNEAK_MULTIPLIER, 1.0)
+        self._jump_multiplier = _default_class_value(CLASS_JUMP_MULTIPLIER, 1.0)
+        self._water_friction = _default_class_value(CLASS_WATER_FRICTION, 2.0)
+        self._fall_min_distance = _default_class_value(CLASS_FALLING_DAMAGE_MIN_DISTANCE, 3.0)
+        self._fall_max_distance = _default_class_value(CLASS_FALLING_DAMAGE_MAX_DISTANCE, 12.0)
+        self._fall_max_damage = _default_class_value(CLASS_FALLING_DAMAGE_MAX_DAMAGE, 100.0)
+        self._fall_on_water_multiplier = _default_class_value(CLASS_FALL_ON_WATER_DAMAGE_MULTIPLIER, 1.0)
+        self._climb_slowdown = 1.0
+        self._can_sprint_uphill = bool(_default_class_value(CLASS_CAN_SPRINT_UPHILL, True))
 
+    property airborne:
+        def __get__(self):
+            return bool(self._airborne)
 
+    property burdened:
+        def __get__(self):
+            return bool(self._burdened)
+        def __set__(self, value):
+            self._burdened = bool(value)
 
-    
-    cpdef bint check_cube_placement(self, int x, int y, int z):
-        """Check if a cube can be placed at this position"""
-        if self.world is None:
-            return True
-        # Can't place where solid block exists
-        if self.world.get_solid(x, y, z):
-            return False
-        # Must be adjacent to existing block
-        cdef int dx, dy, dz
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                for dz in [-1, 0, 1]:
-                    if dx == 0 and dy == 0 and dz == 0:
-                        continue
-                    if self.world.get_solid(x + dx, y + dy, z + dz):
-                        return True
+    property crouch:
+        def __get__(self):
+            return bool(self._crouch)
+
+    property down:
+        def __get__(self):
+            return bool(self._down)
+
+    property fall:
+        def __get__(self):
+            return bool(self._fall)
+
+    property hover:
+        def __get__(self):
+            return bool(self._hover)
+        def __set__(self, value):
+            self._hover = bool(value)
+
+    property is_locked_to_box:
+        def __get__(self):
+            return self._lock_box is not None
+        def __set__(self, value):
+            self._lock_box = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0) if value else None
+
+    property jetpack:
+        def __get__(self):
+            return bool(self._jetpack)
+        def __set__(self, value):
+            self._jetpack = bool(value)
+
+    property jetpack_active:
+        def __get__(self):
+            return bool(self._jetpack_active)
+        def __set__(self, value):
+            self._jetpack_active = bool(value)
+
+    property jetpack_passive:
+        def __get__(self):
+            return bool(self._jetpack_passive)
+        def __set__(self, value):
+            self._jetpack_passive = bool(value)
+
+    property jump:
+        def __get__(self):
+            return bool(self._jump)
+        def __set__(self, value):
+            self._jump = bool(value)
+
+    property jump_this_frame:
+        def __get__(self):
+            return bool(self._jump_this_frame)
+        def __set__(self, value):
+            self._jump_this_frame = bool(value)
+
+    property left:
+        def __get__(self):
+            return bool(self._left)
+
+    property orientation:
+        def __get__(self):
+            return self._orientation
+        def __set__(self, value):
+            value = _as_vector3(value, "orientation")
+            self._orientation = value
+            ox, oy = _normalize_xy(value)
+            if ox == 0.0 and oy == 0.0:
+                self._s = _glm.Vector3(0.0, 1.0, 0.0)
+            else:
+                self._s = _glm.Vector3(-oy, ox, 0.0)
+
+    property parachute:
+        def __get__(self):
+            return bool(self._parachute)
+        def __set__(self, value):
+            self._parachute = bool(value)
+
+    property parachute_active:
+        def __get__(self):
+            return bool(self._parachute_active)
+        def __set__(self, value):
+            self._parachute_active = bool(value)
+
+    property right:
+        def __get__(self):
+            return bool(self._right)
+
+    property s:
+        def __get__(self):
+            return self._s
+        def __set__(self, value):
+            self._s = _as_vector3(value, "s")
+
+    property sneak:
+        def __get__(self):
+            return bool(self._sneak)
+        def __set__(self, value):
+            self._sneak = bool(value)
+
+    property sprint:
+        def __get__(self):
+            return bool(self._sprint)
+        def __set__(self, value):
+            self._sprint = bool(value)
+
+    property up:
+        def __get__(self):
+            return bool(self._up)
+
+    property velocity:
+        def __get__(self):
+            return self._velocity
+        def __set__(self, value):
+            _vector_set(self._velocity, _as_vector3(value, "velocity"))
+
+    property wade:
+        def __get__(self):
+            return bool(self._wade)
+
+    def set_position(self, x, y, z):
+        self._position = _glm.Vector3(float(x), float(y), float(z))
+
+    def set_velocity(self, x, y, z):
+        self._velocity = _glm.Vector3(float(x), float(y), float(z))
+
+    def set_orientation(self, orientation):
+        self.orientation = orientation
+
+    def set_walk(self, up=None, down=None, left=None, right=None):
+        if up is not None:
+            self._up = bool(up)
+        if down is not None:
+            self._down = bool(down)
+        if left is not None:
+            self._left = bool(left)
+        if right is not None:
+            self._right = bool(right)
+        return None
+
+    def set_crouch(self, crouch, players, noof_players):
+        target = bool(crouch)
+        if target == self._crouch:
+            return None
+        if target:
+            if not self._airborne:
+                self._position.z += _PLAYER_CROUCH_SHIFT
+            self._crouch = True
+            return None
+        if self._parent is None or self._parent.map is None or not _aabb_collides(
+            self._parent.map,
+            self._position.x,
+            self._position.y,
+            self._position.z - _PLAYER_CROUCH_SHIFT,
+            _PLAYER_RADIUS,
+            _PLAYER_HEIGHT,
+        ):
+            self._position.z -= _PLAYER_CROUCH_SHIFT
+            self._crouch = False
+        return None
+
+    def set_dead(self, dead):
+        self._alive = not bool(dead)
+        return None
+
+    def set_exploded(self, exploded):
+        self._exploded = bool(exploded)
+        return None
+
+    def set_locked_to_box(self, box):
+        if box is None:
+            self._lock_box = None
+        else:
+            self._lock_box = tuple(float(part) for part in box)
+        return None
+
+    def clear_locked_to_box(self):
+        self._lock_box = None
+        return None
+
+    def set_class_accel_multiplier(self, multiplier):
+        self._accel_multiplier = float(multiplier)
+
+    def set_class_can_sprint_uphill(self, can_sprint):
+        self._can_sprint_uphill = bool(can_sprint)
+
+    def set_class_crouch_sneak_multiplier(self, multiplier):
+        self._crouch_sneak_multiplier = float(multiplier)
+
+    def set_class_fall_on_water_damage_multiplier(self, multiplier):
+        self._fall_on_water_multiplier = float(multiplier)
+
+    def set_class_falling_damage_max_damage(self, damage):
+        self._fall_max_damage = float(damage)
+
+    def set_class_falling_damage_max_distance(self, distance):
+        self._fall_max_distance = float(distance)
+
+    def set_class_falling_damage_min_distance(self, distance):
+        self._fall_min_distance = float(distance)
+
+    def set_class_jump_multiplier(self, multiplier):
+        self._jump_multiplier = float(multiplier)
+
+    def set_class_sprint_multiplier(self, multiplier):
+        self._sprint_multiplier = float(multiplier)
+
+    def set_class_water_friction(self, friction):
+        self._water_friction = float(friction)
+
+    def set_climb_slowdown(self, slowdown):
+        self._climb_slowdown = float(slowdown)
+
+    def check_cube_placement(self, position, safe_radius):
+        global _CUBE_SQ_DISTANCE
+        cube = _as_intvector3(position, "position")
+        safe_radius = float(safe_radius)
+        if self._parent is None or self._parent.map is None:
+            max_z = int(A2215)
+        else:
+            max_z = int(self._parent.map.get_max_modifiable_z())
+
+        if 0 <= cube.x < MAP_X and 0 <= cube.y < MAP_Y and cube.z <= max_z:
+            dx = self._position.x - (cube.x + 0.5)
+            dy = self._position.y - (cube.y + 0.5)
+            dz = self._position.z - (cube.z + 0.5)
+            _CUBE_SQ_DISTANCE = (dx * dx) + (dy * dy) + (dz * dz)
+            return (safe_radius * safe_radius) > _CUBE_SQ_DISTANCE
+
+        _CUBE_SQ_DISTANCE = safe_radius * safe_radius
         return False
-    
-    cpdef void clear_locked_to_box(self):
-        """Clear locked to box state"""
-        self.is_locked_to_box = False
-    
-    cpdef float get_cube_sq_distance(self, int x, int y, int z):
-        """Get squared distance to cube center"""
-        cdef float px = self.position[0]
-        cdef float py = self.position[1]
-        cdef float pz = self.position[2]
-        cdef float dx = (x + 0.5) - px
-        cdef float dy = (y + 0.5) - py
-        cdef float dz = (z + 0.5) - pz
-        return dx*dx + dy*dy + dz*dz
-    
-    # Class multiplier setters
-    cpdef void set_class_accel_multiplier(self, float multiplier):
-        self._accel_multiplier = multiplier
-    
-    cpdef void set_class_can_sprint_uphill(self, bint can_sprint):
-        self._can_sprint_uphill = can_sprint
-    
-    cpdef void set_class_crouch_sneak_multiplier(self, float multiplier):
-        self._crouch_sneak_multiplier = multiplier
-    
-    cpdef void set_class_fall_on_water_damage_multiplier(self, float multiplier):
-        self._fall_on_water_damage_mult = multiplier
-    
-    cpdef void set_class_falling_damage_max_damage(self, float damage):
-        self._falling_damage_max_damage = damage
-    
-    cpdef void set_class_falling_damage_max_distance(self, float distance):
-        self._falling_damage_max_dist = distance
-    
-    cpdef void set_class_falling_damage_min_distance(self, float distance):
-        self._falling_damage_min_dist = distance
-    
-    cpdef void set_class_jump_multiplier(self, float multiplier):
-        self._jump_multiplier = multiplier
-    
-    cpdef void set_class_sprint_multiplier(self, float multiplier):
-        self._sprint_multiplier = multiplier
-    
-    cpdef void set_class_water_friction(self, float friction):
-        self._water_friction = friction
-    
-    cpdef void set_climb_slowdown(self, float slowdown):
-        self._climb_slowdown = slowdown
-    
-    cpdef void set_crouch(self, bint crouch):
-        self.crouch = crouch
-    
-    cpdef void set_dead(self, bint dead):
-        self._dead = dead
 
-    @property
-    def dead(self):
-        return self._dead
-        
-    @dead.setter
-    def dead(self, value):
-        self._dead = value
+    def get_cube_sq_distance(self):
+        return float(_CUBE_SQ_DISTANCE)
 
-    
-    cpdef void set_exploded(self, bint exploded):
-        self._exploded = exploded
-    
-    cpdef void set_locked_to_box(self, object box):
-        self.is_locked_to_box = True
-    
-    cpdef void set_orientation(self, object orientation):
-        """Set player orientation (forward direction) and calculate side vector"""
-        if isinstance(orientation, tuple):
-             x, y, z = orientation
+    def update(self, dt, positions):
+        if not self._alive:
+            return None
+
+        dt = float(dt)
+        map_obj = self._parent.map if self._parent is not None else None
+        self._wade = (self._position.z + _player_height(self._crouch, False)) >= Z_ABOVE_WATERPLANE
+        grounded = _grounded(map_obj, self._position, self._crouch, self._wade)
+        self._airborne = not grounded
+        self._jump_this_frame = (not self._airborne) and self._jump
+
+        if self._jump and grounded:
+            self._velocity.z = self._jump_multiplier * -0.36
+            self._airborne = True
+            grounded = False
+            self._fall_distance = 0.0
+
+        ox, oy = _normalize_xy(self._orientation)
+        sx, sy = self._s.x, self._s.y
+        accel = self._accel_multiplier
+        if (self._crouch and not self._wade) or self._sneak:
+            accel = self._crouch_sneak_multiplier
+        elif self._sprint and not self._burdened:
+            accel = self._sprint_multiplier
+        accel *= dt
+        if self._airborne:
+            accel *= 0.5
+
+        if (self._up or self._down) and (self._left or self._right):
+            accel *= 0.70710677
+
+        if self._up:
+            self._velocity.x += ox * accel
+            self._velocity.y += oy * accel
+        if self._down:
+            self._velocity.x -= ox * accel
+            self._velocity.y -= oy * accel
+        if self._left:
+            self._velocity.x -= sx * accel
+            self._velocity.y -= sy * accel
+        if self._right:
+            self._velocity.x += sx * accel
+            self._velocity.y += sy * accel
+
+        if self._climb_timer > 0.0:
+            self._velocity.x *= self._climb_slowdown
+            self._velocity.y *= self._climb_slowdown
+
+        if not self._wade:
+            gravity_step = dt * _GLOBAL_GRAVITY
+            if self._hover:
+                gravity_step *= 0.75
+            if self._jetpack_active:
+                gravity_step *= 0.05
+            self._velocity.z += gravity_step
+        elif self._crouch:
+            self._velocity.z += ((_GLOBAL_GRAVITY + 1.0) * 0.025) * 0.5
         else:
-             x, y, z = orientation # buffer/list
-             
-        # Normalize f (forward) - though usually passed in normalized
-        cdef float f = sqrt(x*x + y*y)
-        if f == 0:
-             # handle zero case? vertical look
-             self.s = (1.0, 0.0, 0.0) # default side?
-             self.orientation = (x, y, z)
-             return
-             
-        self.orientation = (float(x), float(y), float(z))
-        
-        # Calculate s (side/right vector)
-        # this->s.set(-y / f, x / f, 0.0);
-        self.s = (-y / f, x / f, 0.0)
-        
-        # h (up) vector?
-        # this->h.set(-z * this->s.y, z * this->s.x, (x * this->s.y) - (y * this->s.x));
-        # Not used in update directly, but keeping logic in mind if needed.
-    
-    cpdef void set_position(self, object x, object y, object z):
-        """Set player position"""
-        self.position = (float(x), float(y), float(z))
-    
-    cpdef void set_velocity(self, object x, object y, object z):
-        """Set player velocity"""
-        self.velocity = (float(x), float(y), float(z))
-    
-    cpdef void set_walk(self, bint walk):
-        self._walk = walk
-        
-    cpdef void update_class_multipliers(self, int class_id):
-        try:
-            name = constants.CLASS(class_id).name
-        except (ValueError, AttributeError):
-            name = 'SOLDIER'
-            
-        self._accel_multiplier = getattr(constants, f"{name}_ACCEL_MULTIPLIER", 0.7)
-        self._sprint_multiplier = getattr(constants, f"{name}_SPRINT_MULTIPLIER", 1.4)
-        self._jump_multiplier = getattr(constants, f"{name}_JUMP_MULTIPLIER", 1.2)
-        self._crouch_sneak_multiplier = getattr(constants, f"{name}_CROUCH_SNEAK_MULTIPLIER", 0.5)
-        self._water_friction = getattr(constants, f"{name}_WATER_FRICTION", 8)
-        self._fall_on_water_damage_mult = getattr(constants, f"{name}_FALL_ON_WATER_DAMAGE_MULTIPLIER", 0.5)
+            self._velocity.z = 0.0
 
-        self._falling_damage_min_dist = getattr(constants, f"{name}_FALLING_DAMAGE_MIN_DISTANCE", 10)
-        self._falling_damage_max_dist = getattr(constants, f"{name}_FALLING_DAMAGE_MAX_DISTANCE", 40)
-        self._falling_damage_max_damage = getattr(constants, f"{name}_FALLING_DAMAGE_MAX_DAMAGE", 100)
-
-
-
-
-
-    cpdef void update(self, float dt):
-        """Main player update - physics simulation (Ported from AcePlayer)"""
-        if self._dead:
-            return
-        
-        # Unpack position and velocity
-        cdef float px = self.position[0]
-        cdef float py = self.position[1]
-        cdef float pz = self.position[2]
-        cdef float vx = self.velocity[0]
-        cdef float vy = self.velocity[1]
-        cdef float vz = self.velocity[2]
-        
-        # Vectors
-        cdef float fx = self.orientation[0]
-        cdef float fy = self.orientation[1]
-        # cdef float fz = self.orientation[2] 
-        # Note: in C++, f is the forward vector. 
-        
-        # Side vector (s)
-        if self.s is None:
-             # Calculate s if missing
-            self.set_orientation(self.orientation)
-            
-        cdef float sx = self.s[0]
-        cdef float sy = self.s[1]
-        # cdef float sz = self.s[2]
-        
-        self.timer += dt
-        cdef double time = self.timer
-        self.fall_damage_this_frame = 0.0
-        
-        # Inputs
-        # self.up/down/left/right correspond to mf/mb/ml/mr
-        
-        # Physics Step
-        
-        if self.jump_this_frame and not self.airborne:
-            self.jump_this_frame = False
-            # this->v.z = -0.46f * this->jump_multiplier;
-            # In Z-Down, negative is UP.
-            vz = -0.46 * self._jump_multiplier
-            self.airborne = True
-        
-        cdef float f = dt * 3.0 * self._accel_multiplier
-        if self.airborne:
-            f *= self._jump_multiplier
-        elif self.crouch:
-            f *= self._crouch_sneak_multiplier
-        elif self.sneak:
-            f *= self._crouch_sneak_multiplier
-        elif self.sprint:
-            f *= self._sprint_multiplier
-            
-        # Strafe limit
-        if (self.up or self.down) and (self.left or self.right):
-            f *= sqrt(0.5)
-            
-        if self.up:
-            vx += fx * f
-            vy += fy * f
-        elif self.down:
-            vx -= fx * f
-            vy -= fy * f
-            
-        if self.left:
-            vx -= sx * f
-            vy -= sy * f
-        elif self.right:
-            vx += sx * f
-            vy += sy * f
-            
-        # Friction and Gravity/Air Resistance
-        f = dt + 1.0 # Air friction offset
-        vz += dt # Gravity (positive Z is down)
-        vz /= f  # Air friction on Z
-        
-        if self.wade:
-            f = dt * self._water_friction + 1.0
-        elif not self.airborne:
-            f = dt * 4.0 + 1.0
-        
-        vx /= f
-        vy /= f
-        
-        cdef float f2 = vz
-        
-        # Update self.position/velocity before boxclipmove because it modifies them in place
-        self.position = (px, py, pz)
-        self.velocity = (vx, vy, vz)
-        
-        # BoxClipMove
-        self.boxclipmove(dt, time)
-        
-        # Get updated values back
-        px = self.position[0]
-        py = self.position[1]
-        pz = self.position[2]
-        vx = self.velocity[0]
-        vy = self.velocity[1]
-        vz = self.velocity[2]
-
-        # Hit ground check
-        # Use dynamic fall damage threshold based on min_distance context (base 10 blocks = 0.58 velocity)
-        cdef float fall_damage_threshold = 0.58 * sqrt(self._falling_damage_min_dist / 10.0)
-        
-        if vz == 0 and f2 > FALL_SLOW_DOWN:
-            # Slow down on landing
-            vx *= 0.7
-            vy *= 0.7
-            
-            # Fall damage
-            if f2 > fall_damage_threshold:
-                f2 -= fall_damage_threshold
-                damage = f2 * f2 * FALL_DAMAGE_SCALAR
-                self.fall_damage_this_frame = damage
-
-
-    cdef void boxclipmove(self, double dt, double time):
-        cdef float offset, m
-        if self.crouch:
-            offset = 0.45
-            m = 0.9
+        self._velocity.z /= (dt + 1.0)
+        if self._airborne:
+            friction = self._water_friction if (self._wade or self._jetpack_active or self._parachute_active) else 4.0
         else:
-            offset = 0.9
-            m = 1.35
+            friction = self._water_friction if (self._hover or self._jetpack_active) else 2.0
+        divisor = 1.0 + (dt * friction)
+        self._velocity.x /= divisor
+        self._velocity.y /= divisor
 
-        cdef float f = dt * GRAVITY
-        cdef float vx = self.velocity[0]
-        cdef float vy = self.velocity[1]
-        cdef float vz = self.velocity[2]
-        cdef float px = self.position[0]
-        cdef float py = self.position[1]
-        cdef float pz = self.position[2]
-        cdef float fx_dir = self.orientation[0]
-        # cdef float fy_dir = self.orientation[1]
-        cdef float fz_dir = self.orientation[2]
+        _collide_with_players(self, positions, dt)
+        start_z = self._position.z
+        collided_down = _move_box(
+            self._position,
+            self._velocity,
+            dt,
+            map_obj,
+            self._crouch,
+            self._wade,
+            not self._crouch and self._orientation.z < 0.5,
+        )
 
-        cdef object map_obj
-        if hasattr(self.world, 'map'):
-            map_obj = self.world.map
-        else:
-            map_obj = self.world
-        
-        cdef float nx = f * vx + px
-        cdef float ny = f * vy + py
-        cdef float nz = pz + offset # top of player? 
-        # Actually pz is player position (feet?), offset is eye height?
-        # In C++: nz = this->p.z + offset;
-        
-        # The logic below modifies p (position) and v (velocity)
-        
-        cdef bint climb = False
-        cdef float check_dist
-        
-        # X Axis Collision
-        if vx < 0: 
-            check_dist = -0.45
-        else: 
-            check_dist = 0.45
-            
-        cdef float z = m
-        # Check collision along X
-        # while (z >= -1.36f && !clipbox(this->map, nx + f, this->p.y - 0.45f, nz + z) && !clipbox...)
-        # Note: 'f' here re-used in C++?
-        # float f = dt * 32.f; -> float nx = f * this->v.x + this->p.x;
-        # if (this->v.x < 0) f = -0.45f; else f = 0.45f;
-        
-        while z >= -1.36 and not clipbox(map_obj, nx + check_dist, py - 0.45, nz + z) and \
-                               not clipbox(map_obj, nx + check_dist, py + 0.45, nz + z):
-            z -= 0.9
-            
-        if z < -1.36:
-            px = nx
-        elif not self.crouch and fz_dir < 0.5:
-             # Try to climb
-            z = 0.35
-            while z >= -2.36 and not clipbox(map_obj, nx + check_dist, py - 0.45, nz + z) and \
-                                   not clipbox(map_obj, nx + check_dist, py + 0.45, nz + z):
-                z -= 0.9
-            if z < -2.36:
-                px = nx
-                climb = True
-            else:
-                vx = 0
-        else:
-            vx = 0
-            
-        # Y Axis Collision
-        if vy < 0:
-            check_dist = -0.45
-        else:
-            check_dist = 0.45
-            
-        z = m
-        while z >= -1.36 and not clipbox(map_obj, px - 0.45, ny + check_dist, nz + z) and \
-                               not clipbox(map_obj, px + 0.45, ny + check_dist, nz + z):
-            z -= 0.9
-            
-        if z < -1.36:
-            py = ny
-        elif not self.crouch and fz_dir < 0.5 and not climb:
-            z = 0.35
-            while z >= -2.36 and not clipbox(map_obj, px - 0.45, ny + check_dist, nz + z) and \
-                                   not clipbox(map_obj, px + 0.45, ny + check_dist, nz + z):
-                z -= 0.9
-            if z < -2.36:
-                py = ny
-                climb = True
-            else:
-                vy = 0
-        elif not climb:
-            vy = 0
-            
-        if climb:
-            vx *= 0.5
-            vy *= 0.5
-            self.last_climb = time
-            nz -= 1
-            m = -1.35
-        else:
-            # Z movement
-            if vz < 0:
-                m = -m
-            nz += vz * dt * 32.0
-            
-        self.airborne = True
-        
-        # Z Axis Collision (floor/ceiling)
-        if clipbox(map_obj, px - 0.45, py - 0.45, nz + m) or \
-           clipbox(map_obj, px - 0.45, py + 0.45, nz + m) or \
-           clipbox(map_obj, px + 0.45, py - 0.45, nz + m) or \
-           clipbox(map_obj, px + 0.45, py + 0.45, nz + m):
-            
-            if vz >= 0: # Falling down / Hitting floor
-                 # self.wade = self.p.z > 61; -> In our coords, bottom is 63.
-                 if pz > 61:
-                     self.wade = True
-                 self.airborne = False
-            
-            vz = 0
-        else:
-            pz = nz - offset
-            
-        self.position = (px, py, pz)
-        self.velocity = (vx, vy, vz)
-        
-        self.reposition(dt, time)
+        if self._lock_box is not None and len(self._lock_box) == 6:
+            x1, y1, z1, x2, y2, z2 = self._lock_box
+            self._position.x = min(max(self._position.x, x1), x2)
+            self._position.y = min(max(self._position.y, y1), y2)
+            self._position.z = min(max(self._position.z, z1), z2)
 
-    cdef void reposition(self, double dt, double time):
-        cdef float px = self.position[0]
-        cdef float py = self.position[1]
-        cdef float pz = self.position[2]
-        
-        # this->e.set(this->p.x, this->p.y, this->p.z);
-        # e is visual position?
-        # double f = this->lastclimb - time;
-        # if (f > -0.25f) this->e.z += (f + 0.25f) / 0.25f;
-        
-        # We don't have 'e' (visual position vector) in the Python class yet, 
-        # usually visual interp is done on client or rendering.
-        # But I will implement logic so it's there if needed.
-        # I'll store it in self.visual_position if needed or just skip.
-        # The user code has logic for 'e'.
-        pass 
+        if self._position.z > start_z:
+            self._fall_distance += self._position.z - start_z
+        elif self._position.z < start_z - 0.1:
+            self._fall_distance = 0.0
 
+        self._climb_timer = max(0.0, self._climb_timer - dt)
+        self._wade = (self._position.z + _player_height(self._crouch, False)) >= Z_ABOVE_WATERPLANE
+        landed = collided_down or _grounded(map_obj, self._position, self._crouch, self._wade)
+        damage = 0.0
+        if landed:
+            self._airborne = False
+            if self._fall_distance > self._fall_min_distance:
+                span = max(1e-6, self._fall_max_distance - self._fall_min_distance)
+                ratio = min(1.0, (self._fall_distance - self._fall_min_distance) / span)
+                damage = ratio * self._fall_max_damage
+                if self._wade:
+                    damage *= self._fall_on_water_multiplier
+            self._fall_distance = 0.0
+        else:
+            self._airborne = True
 
-# ============================================================================
-# PlayerMovementHistory Class
-# ============================================================================
+        if damage == 0.0:
+            return 0
+        return damage
+
 
 cdef class PlayerMovementHistory:
-    """Stores player movement history for validation/replay"""
-    
-    def __init__(self):
-        self.loop_count = 0
-        self.position = []
-        self.velocity = []
-    
-    cpdef dict get_client_data(self):
-        """Get data for client"""
-        return {"loop_count": self.loop_count, "position": self.position, "velocity": self.velocity}
-    
-    cpdef void set_all_data(self, dict data):
-        """Set all history data"""
-        self.loop_count = data.get("loop_count", 0)
-        self.position = data.get("position", [])
-        self.velocity = data.get("velocity", [])
+    cdef public int loop_count
+    cdef object _position
+    cdef object _velocity
 
+    def __init__(self, player, loop_count):
+        self.loop_count = int(loop_count)
+        self._position = _glm.Vector3(0.0, 0.0, 0.0)
+        self._velocity = _glm.Vector3(0.0, 0.0, 0.0)
+        self.set_all_data(player)
 
-# ============================================================================
-# Grenade Class
-# ============================================================================
+    property position:
+        def __get__(self):
+            return self._position
+        def __set__(self, value):
+            self._position = _as_vector3(value, "position")
 
-cdef class Grenade(Object):
-    """Grenade with physics"""
-    
-    def __init__(self, object world):
-        super().__init__(world)
-        self.fuse = 3.0
-        self.velocity = (0.0, 0.0, 0.0)
-        self._gravity_mult = 1.0
-        self._bounce = 0.4
-    
-    cpdef void update(self, float dt):
-        """Update grenade physics"""
-        self.fuse -= dt
-        if self.fuse <= 0:
-            self.delete()
-            return
-        
-        cdef float px = self.position[0]
-        cdef float py = self.position[1]
-        cdef float pz = self.position[2]
-        cdef float vx = self.velocity[0]
-        cdef float vy = self.velocity[1]
-        cdef float vz = self.velocity[2]
-        
-        # Apply gravity
-        vz += GRAVITY * self._gravity_mult * dt
-        
-        # Apply velocity
-        px += vx * dt
-        py += vy * dt
-        pz += vz * dt
-        
-        # Simple ground collision
-        if pz < 0:
-            pz = 0
-            vz = -vz * self._bounce
-            vx *= 0.8
-            vy *= 0.8
-        
-        self.position = (px, py, pz)
-        self.velocity = (vx, vy, vz)
+    property velocity:
+        def __get__(self):
+            return self._velocity
+        def __set__(self, value):
+            self._velocity = _as_vector3(value, "velocity")
 
+    def set_all_data(self, player):
+        if hasattr(player, "position"):
+            self._position = _as_vector3(player.position, "player")
+        if hasattr(player, "velocity"):
+            self._velocity = _as_vector3(player.velocity, "player")
+        return None
 
-# ============================================================================
-# GenericMovement Class
-# ============================================================================
+    def get_client_data(self, player):
+        return None
+
 
 cdef class GenericMovement(Object):
-    """Generic physics object with customizable behavior"""
-    
-    def __init__(self, object world):
-        super().__init__(world)
-        self.last_hit_collision_block = None
-        self.last_hit_normal = (0.0, 0.0, 0.0)
-        self.velocity = (0.0, 0.0, 0.0)
-        
+    cdef object _velocity
+    cdef object _last_hit_collision_block
+    cdef object _last_hit_normal
+    cdef bint _allow_burying
+    cdef bint _allow_floating
+    cdef bint _bouncing
+    cdef double _gravity_multiplier
+    cdef double _max_speed
+    cdef bint _stop_on_collision
+    cdef bint _stop_on_face
+
+    def initialize(self, position, velocity=None):
+        self._position = _as_vector3(position, "position")
+        self._velocity = _as_vector3(velocity if velocity is not None else _glm.Vector3(0.0, 0.0, 0.0), "velocity")
+        self._last_hit_collision_block = _glm.IntVector3(0, 0, 0)
+        self._last_hit_normal = _glm.IntVector3(0, 0, 0)
         self._allow_burying = False
         self._allow_floating = False
         self._bouncing = False
-        self._gravity_mult = 1.0
-        self._max_speed = 100.0
-        self._stop_on_collision = True
-        self._stop_on_face = -1
-    
-    cpdef void set_allow_burying(self, bint allow):
-        self._allow_burying = allow
-    
-    cpdef void set_allow_floating(self, bint allow):
-        self._allow_floating = allow
-    
-    cpdef void set_bouncing(self, bint bouncing):
-        self._bouncing = bouncing
-    
-    cpdef void set_gravity_multiplier(self, float multiplier):
-        self._gravity_mult = multiplier
-    
-    cpdef void set_max_speed(self, float speed):
-        self._max_speed = speed
-    
-    cpdef void set_position(self, float x, float y, float z):
-        self.position = (x, y, z)
-    
-    cpdef void set_stop_on_collision(self, bint stop):
-        self._stop_on_collision = stop
-    
-    cpdef void set_stop_on_face(self, int face):
-        self._stop_on_face = face
-    
-    cpdef void set_velocity(self, float x, float y, float z):
-        self.velocity = (x, y, z)
-    
-    cpdef void update(self, float dt):
-        """Update generic movement physics"""
-        cdef float px = self.position[0]
-        cdef float py = self.position[1]
-        cdef float pz = self.position[2]
-        cdef float vx = self.velocity[0]
-        cdef float vy = self.velocity[1]
-        cdef float vz = self.velocity[2]
-        
-        # Apply gravity
+        self._gravity_multiplier = 1.0
+        self._max_speed = 0.0
+        self._stop_on_collision = False
+        self._stop_on_face = False
+
+    property velocity:
+        def __get__(self):
+            return self._velocity
+        def __set__(self, value):
+            _vector_set(self._velocity, _as_vector3(value, "velocity"))
+
+    property last_hit_collision_block:
+        def __get__(self):
+            return self._last_hit_collision_block
+        def __set__(self, value):
+            self._last_hit_collision_block = _as_intvector3(value, "last_hit_collision_block")
+
+    property last_hit_normal:
+        def __get__(self):
+            return self._last_hit_normal
+        def __set__(self, value):
+            self._last_hit_normal = _as_intvector3(value, "last_hit_normal")
+
+    def set_bouncing(self, bouncing):
+        self._bouncing = bool(bouncing)
+
+    def set_stop_on_collision(self, stop):
+        self._stop_on_collision = bool(stop)
+
+    def set_stop_on_face(self, stop):
+        self._stop_on_face = bool(stop)
+
+    def set_allow_burying(self, allow):
+        self._allow_burying = bool(allow)
+
+    def set_allow_floating(self, allow):
+        self._allow_floating = bool(allow)
+
+    def set_gravity_multiplier(self, multiplier):
+        self._gravity_multiplier = float(multiplier)
+
+    def set_max_speed(self, speed):
+        self._max_speed = float(speed)
+
+    def set_position(self, position):
+        self._position = _as_vector3(position, "position")
+
+    def set_velocity(self, velocity):
+        self._velocity = _as_vector3(velocity, "velocity")
+
+    def update(self, dt, players):
+        dt = float(dt)
         if not self._allow_floating:
-            vz += GRAVITY * self._gravity_mult * dt
-        
-        # Clamp speed
-        cdef float speed = sqrt(vx*vx + vy*vy + vz*vz)
-        cdef float scale
-        if speed > self._max_speed:
-            scale = self._max_speed / speed
-            vx *= scale
-            vy *= scale
-            vz *= scale
-        
-        # Apply velocity
-        px += vx * dt
-        py += vy * dt
-        pz += vz * dt
-        
-        # Collision
-        cdef int gx, gy, gz
-        if self._stop_on_collision and self.world is not None:
-            gx = int(c_floor(px))
-            gy = int(c_floor(py))
-            gz = int(c_floor(pz))
-            
-            if self.world.get_solid(gx, gy, gz):
-                self.last_hit_collision_block = (gx, gy, gz)
-                if self._bouncing:
-                    vz = -vz * 0.5
-                else:
-                    vx = vy = vz = 0.0
-        
-        self.position = (px, py, pz)
-        self.velocity = (vx, vy, vz)
+            self._velocity.z += _GLOBAL_GRAVITY * self._gravity_multiplier * dt
+        return 0
 
 
-# ============================================================================
-# FallingBlocks Class
-# ============================================================================
+cdef class ControlledGenericMovement(GenericMovement):
+    cdef object _forward_vector
+    cdef bint _input_back
+    cdef bint _input_forward
+    cdef bint _input_left
+    cdef bint _input_right
+    cdef double _speed_back
+    cdef double _speed_forward
+    cdef double _speed_left
+    cdef double _speed_right
+    cdef bint _strafing
+
+    def initialize(self, position, velocity=None, forward_vector=None):
+        GenericMovement.initialize(self, position, velocity)
+        self._forward_vector = _as_vector3(
+            forward_vector if forward_vector is not None else _glm.Vector3(0.0, 1.0, 0.0),
+            "forward_vector",
+        )
+        self._last_hit_collision_block = None
+        self._last_hit_normal = None
+        self._input_back = False
+        self._input_forward = False
+        self._input_left = False
+        self._input_right = False
+        self._speed_back = 0.0
+        self._speed_forward = 0.0
+        self._speed_left = 0.0
+        self._speed_right = 0.0
+        self._strafing = False
+
+    property forward_vector:
+        def __get__(self):
+            return self._forward_vector
+        def __set__(self, value):
+            self._forward_vector = _as_vector3(value, "forward_vector")
+
+    property input_back:
+        def __get__(self):
+            return bool(self._input_back)
+        def __set__(self, value):
+            self._input_back = bool(value)
+
+    property input_forward:
+        def __get__(self):
+            return bool(self._input_forward)
+        def __set__(self, value):
+            self._input_forward = bool(value)
+
+    property input_left:
+        def __get__(self):
+            return bool(self._input_left)
+        def __set__(self, value):
+            self._input_left = bool(value)
+
+    property input_right:
+        def __get__(self):
+            return bool(self._input_right)
+        def __set__(self, value):
+            self._input_right = bool(value)
+
+    property speed_back:
+        def __get__(self):
+            return self._speed_back
+        def __set__(self, value):
+            self._speed_back = float(value)
+
+    property speed_forward:
+        def __get__(self):
+            return self._speed_forward
+        def __set__(self, value):
+            self._speed_forward = float(value)
+
+    property speed_left:
+        def __get__(self):
+            return self._speed_left
+        def __set__(self, value):
+            self._speed_left = float(value)
+
+    property speed_right:
+        def __get__(self):
+            return self._speed_right
+        def __set__(self, value):
+            self._speed_right = float(value)
+
+    property strafing:
+        def __get__(self):
+            return bool(self._strafing)
+        def __set__(self, value):
+            self._strafing = bool(value)
+
+    def set_forward_vector(self, vector):
+        self.forward_vector = vector
+
+    def update(self, dt, players):
+        dt = float(dt)
+        fx, fy = _normalize_xy(self._forward_vector)
+        side = _glm.Vector3(-fy, fx, 0.0)
+        if self._input_forward:
+            self._velocity.x += fx * (self._speed_forward * dt)
+            self._velocity.y += fy * (self._speed_forward * dt)
+        if self._input_back:
+            self._velocity.x -= fx * (self._speed_back * dt)
+            self._velocity.y -= fy * (self._speed_back * dt)
+        if self._input_left:
+            self._velocity.x -= side.x * (self._speed_left * dt)
+            self._velocity.y -= side.y * (self._speed_left * dt)
+        if self._input_right:
+            self._velocity.x += side.x * (self._speed_right * dt)
+            self._velocity.y += side.y * (self._speed_right * dt)
+        return GenericMovement.update(self, dt, players)
+
+
+cdef class Grenade(Object):
+    cdef object _velocity
+    cdef double _fuse
+
+    def initialize(self, position, velocity, fuse):
+        self._name = "grenade"
+        self._position = _as_vector3(position, "position")
+        self._velocity = _as_vector3(velocity, "velocity")
+        self._fuse = float(fuse)
+
+    property velocity:
+        def __get__(self):
+            return self._velocity
+        def __set__(self, value):
+            _vector_set(self._velocity, _as_vector3(value, "velocity"))
+
+    property fuse:
+        def __get__(self):
+            return self._fuse
+        def __set__(self, value):
+            self._fuse = float(value)
+
+    def update(self, dt, players):
+        self._fuse = max(0.0, self._fuse - float(dt))
+        self._velocity.z += _GLOBAL_GRAVITY * float(dt)
+        return 0 if self._fuse > 0.0 else 1
+
 
 cdef class FallingBlocks(Object):
-    """Falling blocks after block destruction"""
-    
-    def __init__(self, object world):
-        super().__init__(world)
-        self.rotation = (0.0, 0.0, 0.0)
-        self.velocity = (0.0, 0.0, 0.0)
-        self.blocks = []
-    
-    cpdef void update(self, float dt):
-        """Update falling blocks"""
-        cdef float px = self.position[0]
-        cdef float py = self.position[1]
-        cdef float pz = self.position[2]
-        cdef float vx = self.velocity[0]
-        cdef float vy = self.velocity[1]
-        cdef float vz = self.velocity[2]
-        
-        # Apply gravity
-        vz += GRAVITY * dt
-        
-        # Apply velocity
-        px += vx * dt
-        py += vy * dt
-        pz += vz * dt
-        
-        # Hit water/ground
-        if pz <= 0:
-            self.delete()
-            return
-        
-        self.position = (px, py, pz)
-        self.velocity = (vx, vy, vz)
+    cdef object _velocity
+    cdef object _rotation
 
+    def initialize(self, x, y, z):
+        self._name = "blocks"
+        self._position = _glm.Vector3(float(x), float(y), float(z))
+        self._velocity = _glm.Vector3(0.0, 0.0, 0.0)
+        self._rotation = get_random_vector()
 
-# ============================================================================
-# Debris Class
-# ============================================================================
+    property velocity:
+        def __get__(self):
+            return self._velocity
+        def __set__(self, value):
+            self._velocity = _as_vector3(value, "velocity")
+
+    property rotation:
+        def __get__(self):
+            return self._rotation
+        def __set__(self, value):
+            self._rotation = _as_vector3(value, "rotation")
+
+    def update(self, dt, players):
+        self._velocity.z += _GLOBAL_GRAVITY * float(dt)
+        return 0
+
 
 cdef class Debris(Object):
-    """Small debris particles"""
-    
-    def __init__(self, object world):
-        super().__init__(world)
-        self.in_use = False
-        self.rotation = (0.0, 0.0, 0.0)
-        self.rotation_speed = (0.0, 0.0, 0.0)
-        self.velocity = (0.0, 0.0, 0.0)
-        self._lifetime = 5.0
-    
-    cpdef void free(self):
-        self.in_use = False
-    
-    cpdef void use(self):
-        self.in_use = True
-    
-    cpdef void update(self, float dt):
-        """Update debris"""
-        if not self.in_use:
-            return
-        
-        self._lifetime -= dt
-        if self._lifetime <= 0:
-            self.free()
-            return
-        
-        cdef float px = self.position[0]
-        cdef float py = self.position[1]
-        cdef float pz = self.position[2]
-        cdef float vx = self.velocity[0]
-        cdef float vy = self.velocity[1]
-        cdef float vz = self.velocity[2]
-        
-        vz += GRAVITY * dt
-        px += vx * dt
-        py += vy * dt
-        pz += vz * dt
-        
-        if pz < 0:
-            self.free()
-            return
-        
-        self.position = (px, py, pz)
-        self.velocity = (vx, vy, vz)
+    cdef object _velocity
+    cdef int _rotation
+    cdef double _rotation_speed
+    cdef bint _in_use
 
+    def initialize(self, position, velocity, rotation, gravity_multiplier, rotation_speed):
+        vel = _as_vector3(velocity, "velocity")
+        self._name = "debris"
+        self._position = _as_vector3(position, "position")
+        self._velocity = _glm.Vector3(-vel.x, -vel.y, -vel.z)
+        self._rotation = int(rotation)
+        self._rotation_speed = float(rotation_speed)
+        self._in_use = False
 
-# ============================================================================
-# ControlledGenericMovement Class
-# ============================================================================
+    property velocity:
+        def __get__(self):
+            return self._velocity
+        def __set__(self, value):
+            self._velocity = _as_vector3(value, "velocity")
 
-cdef class ControlledGenericMovement(Object):
-    """Generic movement with input controls (vehicles, etc.)"""
-    
-    def __init__(self, object world):
-        super().__init__(world)
-        self.forward_vector = (1.0, 0.0, 0.0)
-        self.input_back = False
-        self.input_forward = False
-        self.input_left = False
-        self.input_right = False
-        self.last_hit_collision_block = None
-        self.last_hit_normal = (0.0, 0.0, 0.0)
-        self.speed_back = 1.0
-        self.speed_forward = 1.0
-        self.speed_left = 1.0
-        self.speed_right = 1.0
-        self.strafing = False
-        self.velocity = (0.0, 0.0, 0.0)
-        
-        self._allow_burying = False
-        self._allow_floating = False
-        self._bouncing = False
-        self._gravity_mult = 1.0
-        self._max_speed = 100.0
-        self._stop_on_collision = True
-        self._stop_on_face = -1
-    
-    cpdef void set_allow_burying(self, bint allow):
-        self._allow_burying = allow
-    
-    cpdef void set_allow_floating(self, bint allow):
-        self._allow_floating = allow
-    
-    cpdef void set_bouncing(self, bint bouncing):
-        self._bouncing = bouncing
-    
-    cpdef void set_forward_vector(self, tuple vector):
-        self.forward_vector = vector
-    
-    cpdef void set_gravity_multiplier(self, float multiplier):
-        self._gravity_mult = multiplier
-    
-    cpdef void set_max_speed(self, float speed):
-        self._max_speed = speed
-    
-    cpdef void set_position(self, float x, float y, float z):
-        self.position = (x, y, z)
-    
-    cpdef void set_stop_on_collision(self, bint stop):
-        self._stop_on_collision = stop
-    
-    cpdef void set_stop_on_face(self, int face):
-        self._stop_on_face = face
-    
-    cpdef void set_velocity(self, float x, float y, float z):
-        self.velocity = (x, y, z)
-    
-    cpdef void update(self, float dt):
-        """Update with input controls"""
-        cdef float px = self.position[0]
-        cdef float py = self.position[1]
-        cdef float pz = self.position[2]
-        cdef float vx = self.velocity[0]
-        cdef float vy = self.velocity[1]
-        cdef float vz = self.velocity[2]
-        
-        cdef float fx = self.forward_vector[0]
-        cdef float fy = self.forward_vector[1]
-        
-        # Calculate right vector
-        cdef float rx = -fy
-        cdef float ry = fx
-        
-        # Apply input
-        if self.input_forward:
-            vx += fx * self.speed_forward * dt
-            vy += fy * self.speed_forward * dt
-        if self.input_back:
-            vx -= fx * self.speed_back * dt
-            vy -= fy * self.speed_back * dt
-        if self.input_left:
-            vx -= rx * self.speed_left * dt
-            vy -= ry * self.speed_left * dt
-        if self.input_right:
-            vx += rx * self.speed_right * dt
-            vy += ry * self.speed_right * dt
-        
-        # Apply gravity
-        if not self._allow_floating:
-            vz += GRAVITY * self._gravity_mult * dt
-        
-        # Apply velocity
-        px += vx * dt
-        py += vy * dt
-        pz += vz * dt
-        
-        self.position = (px, py, pz)
-        self.velocity = (vx, vy, vz)
+    property rotation:
+        def __get__(self):
+            return self._rotation
+        def __set__(self, value):
+            self._rotation = int(value)
+
+    property rotation_speed:
+        def __get__(self):
+            return self._rotation_speed
+        def __set__(self, value):
+            self._rotation_speed = float(value)
+
+    property in_use:
+        def __get__(self):
+            return bool(self._in_use)
+        def __set__(self, value):
+            self._in_use = bool(value)
+
+    def use(self):
+        self._in_use = True
+        return None
+
+    def free(self):
+        self._in_use = False
+        return None
+
+    def update(self, dt, players):
+        self._velocity.z += _GLOBAL_GRAVITY * float(dt)
+        return 0

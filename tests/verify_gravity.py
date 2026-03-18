@@ -2,8 +2,10 @@
 import sys
 import os
 
-# Add local directory to path to ensure we load local aoslib
-sys.path.insert(0, os.getcwd())
+# Add project root to path to ensure we load local aoslib
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+sys.path.insert(0, PROJECT_ROOT)
 
 try:
     from aoslib.world import World, Player
@@ -15,7 +17,7 @@ except ImportError as e:
 
 def test_gravity():
     # Create empty map
-    vxl = VXL()
+    vxl = VXL(-1, b"", 0, 2)
     # Fill bottom layer with solid to catch player? Or just check gravity in air
     # VXL is 512x512x64. Z=63 is bottom.
     

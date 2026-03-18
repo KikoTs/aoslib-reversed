@@ -35,3 +35,6 @@ vs/
 
 *.bak
 *.old
+
+.ida-mcp
+.txt-tests

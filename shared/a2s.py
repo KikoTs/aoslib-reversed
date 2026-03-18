@@ -253,15 +253,21 @@ class A2SServer:
             return self.make_challenge_response_packet()
             
         # Send appropriate response for valid challenge
+        response = None
         if header == A2SConstants.A2S_INFO_REQUEST_HEADER:
             logger.info(f"Sending INFO response")
-            return self.make_info_response_packet()
+            response = self.make_info_response_packet()
         elif header == A2SConstants.A2S_PLAYER_REQUEST_HEADER:
             logger.info(f"Sending PLAYER response")
-            return self.make_player_response_packet()
+            response = self.make_player_response_packet()
         elif header == A2SConstants.A2S_RULES_REQUEST_HEADER:
             logger.info(f"Sending RULES response")
-            return self.make_rules_response_packet()
+            response = self.make_rules_response_packet()
         else:
             logger.warning(f"Unknown header: 0x{header:x}")
             return None 
+
+        if response:
+            logger.info(f"Sent packet hex: {binascii.hexlify(response)}")
+            
+        return response 

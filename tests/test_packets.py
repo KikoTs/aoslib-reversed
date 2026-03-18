@@ -122,7 +122,6 @@ def test_generic_vote_message(): # 1:1
     current_packet.title = "Test1"
     current_packet.description = "Test2"
     current_packet.message_type = 3
-    current_packet.hide_after_vote = 4
     current_packet.player_id = 5
     return current_packet
 
@@ -409,7 +408,6 @@ def test_place_flare_block(): # 1:1
     current_packet.x = 2
     current_packet.y = 3
     current_packet.z = 4
-    current_packet.face = 5
     return current_packet
 
 def test_place_landmine(): # 1:1
@@ -810,7 +808,7 @@ def test_progress_bar(): # 1:1
     return current_packet
 
 def test_map_data_validation(): # 1:1
-    current_packet = packet.AosMapValidation()
+    current_packet = packet.MapDataValidation()
     current_packet.crc = 1
     return current_packet
 
@@ -866,17 +864,17 @@ def test_build_prefab_action(): # 1:1
     return current_packet
 
 def test_map_data_chunk(): # 1:1
-    current_packet = packet.AosMapChunk()
+    current_packet = packet.MapDataChunk()
     current_packet.data = b"test"
     current_packet.percent_complete = 1
     return current_packet
 
 def test_map_data_end(): # 1:1
-    current_packet = packet.AosMapEnd()
+    current_packet = packet.MapDataEnd()
     return current_packet
 
 def test_map_data_start(): # 1:1
-    current_packet = packet.AosMapStart()
+    current_packet = packet.MapDataStart()
     return current_packet
 
 def test_existing_player(): # 1:1
@@ -1055,9 +1053,189 @@ def test_world_update():
     current_packet.player_updates[1] = (pos, orient, vel, ping, pong, hp, inp, action, tool)
     return current_packet
 
+def test_blockmanagerstate():
+    current_packet = packet.BlockManagerState()
+    return current_packet
+
+def test_changeentity():
+    current_packet = packet.ChangeEntity()
+    current_packet.entity_id = 1
+    current_packet.fuse = 0
+    current_packet.player_id = 1
+    current_packet.state = 0
+    current_packet.type = 1
+    return current_packet
+
+def test_createentity():
+    current_packet = packet.CreateEntity()
+    current_packet.entity = {}
+    current_packet.set_entity = 0
+    return current_packet
+
+def test_entityupdates():
+    current_packet = packet.EntityUpdates()
+    return current_packet
+
+def test_eraseprefabaction():
+    current_packet = packet.ErasePrefabAction()
+    current_packet.from_block_index = 0
+    current_packet.loop_count = 0
+    current_packet.player_id = 1
+    current_packet.prefab_name = "test"
+    current_packet.to_block_index = 0
+    return current_packet
+
+def test_initialugcbatch():
+    current_packet = packet.InitialUGCBatch()
+    return current_packet
+
+def test_mapsyncchunk():
+    current_packet = packet.MapSyncChunk()
+    current_packet.data = b""
+    current_packet.percent_complete = 0
+    return current_packet
+
+def test_mapsyncend():
+    current_packet = packet.MapSyncEnd()
+    return current_packet
+
+def test_mapsyncstart():
+    current_packet = packet.MapSyncStart()
+    return current_packet
+
+def test_packchunk():
+    current_packet = packet.PackChunk()
+    current_packet.data = b""
+    return current_packet
+
+def test_serverblockaction():
+    current_packet = packet.ServerBlockAction()
+    current_packet.items = []
+    return current_packet
+
 test_packets_list = [
+    test_blockmanagerstate,
+    test_changeentity,
+    test_createentity,
+    test_entityupdates,
+    test_eraseprefabaction,
+    test_initialugcbatch,
+    test_mapsyncchunk,
+    test_mapsyncend,
+    test_mapsyncstart,
+    test_packchunk,
+    test_serverblockaction,
+    test_initial_info,
+    test_world_update,
+
+    test_set_hp,
+    test_hit_entity,
+    test_help_message,
+    test_generic_vote_message,
+    test_initiate_kick_message,
+    test_kill_action,
+    test_lock_team,
+    test_lock_to_zone,
+    test_force_team_join,
+    test_force_show_scores,
+    test_restock,
+    test_reqest_ugc_entities,
+    test_prefab_complete,
+    test_player_left,
+    test_change_class,
+    test_change_team,
+    test_chat_message,
+    test_skybox_data,
+    test_show_text_message,
+    test_stop_music,
+    test_stop_sound,
+    test_team_infinite_blocks,
+    test_team_lock_class,
+    test_team_lock_score,
+    test_team_map_visibility,
+    test_use_command,
+    test_weapon_reload,
+    test_set_score,
+    test_password,
+    test_password_needed,
+    test_password_provided,
+    test_time_scale,
+    test_set_class_loadout,
+    test_clock_sync,
+    test_destroy_entity,
+    test_disable_entity,
+    test_explode_corpse,
+    test_display_countdown,
+    test_place_mg,
+    test_place_med_pack,
+    test_place_radar_station,
+    test_place_rocket_turret,
+    test_place_ugc,
+    test_pick_pickup,
+    test_place_c4,
+    test_place_dynamite,
+    test_place_flare_block,
+    test_place_landmine,
+    test_play_ambient_sound,
+    test_play_music,
+    test_play_sound,
+    test_ugc_message,
+    test_ugc_map_info,
+    test_ugc_map_loading_from_host,
+    test_ugc_objectives,
+    test_team_progress,
+    test_add_server,
+    test_block_build,
+    test_block_line,
+    test_block_liberate,
+    test_block_occupy,
+    test_block_sucker_packet,
+    test_change_player,
+    test_client_in_menu,
+    test_detonate_c4,
+    test_disguise_packet,
+    test_poifocus,
+    test_drop_pickup,
+    test_debug_draw,
+    test_voice_data,
+    test_steam_session_ticket,
+    test_rank_ups,
+    test_show_game_stats,
+    test_shoot_response,
+    test_shoot_packet,
+    test_set_ugc_edit_mode,
+    # test_ugc_batch_entity, # Not a Loader subclass, no read/write methods
+    test_shoot_feedback_packet,
+    test_pack_response,
+    test_pack_start,
+    test_minimap_billboard,
+    test_minimap_billboard_clear,
+    test_minimap_zone,
+    test_minimap_zone_clear,
+    test_map_ended,
+    test_create_ambient_sound,
+    test_fog_color,
+    test_block_build_colored,
+    test_use_oriented_item,
+    test_terrytory_base_state,
+    test_set_color,
+    test_set_ground_colors,
+    test_damage,
+    test_progress_bar,
+    test_map_data_validation,
+    test_create_player,
+    test_paint_block,
+    test_localised_message,
+    test_build_prefab_action,
+    test_map_data_chunk,
+    test_map_data_end,
+    test_map_data_start,
+    test_existing_player,
+    test_new_player_connection,
+    test_game_stats,
+    test_client_data,
     test_state_data,
-    # test_world_update # Requires fixing player_updates attribute in Py2 WorldUpdate wrapper
+     # Requires fixing player_updates attribute in Py2 WorldUpdate wrapper
 ]
 
 def test_packets():
@@ -1082,6 +1260,22 @@ def test_packets():
         print("=== Hex Output (Py{}) ===".format(sys.version_info[0]))
         print(hex_output)
         print("=== Length: {} bytes ===".format(len(raw_data)))
+        
+        # Save hex output to file BEFORE reading, so that if read fails we still have the hex output for comparison
+        version = "py3" if sys.version_info[0] >= 3 else "py2"
+        log_dir = os.path.join(script_dir, "logs")
+        if not os.path.exists(log_dir):
+            try:
+                os.makedirs(log_dir)
+            except OSError:
+                pass
+        
+        fname = "{}_{}.txt".format(test_func.__name__, version)
+        fpath = os.path.join(log_dir, fname)
+        with open(fpath, "w") as f:
+            f.write(hex_output)
+        print("Saved to {}".format(fpath))
+
         
         # Initialize reader with raw bytes
         reader = ByteReader(raw_data)
@@ -1112,12 +1306,5 @@ def test_packets():
             print("SUCCESS: Read packet matches original packet!")
         else:
             print("FAILURE: Read packet differs from original packet!")
-            
-        # Save to file
-        version = "py3" if sys.version_info[0] >= 3 else "py2"
-        fname = "{}_{}.txt".format(test_func.__name__, version)
-        with open(fname, "w") as f:
-            f.write(hex_output)
-        print("Saved to {}".format(fname))
 
 test_packets()

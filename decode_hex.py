@@ -30,7 +30,7 @@ def find_packet_class(packet_id):
 
 def main():
     # Working hex from real server
-    hex_str = "0F 02 00 00 00 4B 69 6B 6F 54 73 00"
+    hex_str = "27 54 FC 5A 5B 0C 50 53 5A 0C 0A 17 1F 18 1A 1F 03 75 76 65 66 61 62 5F 71 61 78 72 37 31 61 75 76 79 3F 61 73 00 70 28 39 3F 3B 3B 5E 2E 26 77 65 21 62 60 73 72 68 64 20 02 71 77 30 68 61 63 58 72 39 74 78 65 72 73 6D 60 6C 6C 76 10 33 31 00 02"
     
     data = hex_to_bytes(hex_str)
     packet_id = data[0] if isinstance(data[0], int) else ord(data[0])

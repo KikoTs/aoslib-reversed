@@ -1,376 +1,411 @@
 """
-World Module Tests - Binary Compatibility
-==========================================
-Tests the World module implementation by comparing Python 2 (original) vs Python 3 (ours).
-Focuses on output comparison for 100% game compatibility.
-
-Usage:
-    py2 ./test_world.py   - Test original implementation, save output to files
-    py  ./test_world.py   - Test our new implementation, compare with original
+World restoration tests.
 
 Workflow:
-    1. Run with py2 first to generate reference outputs
-    2. Run with py3 to test our implementation and compare
+    1. Python 2.7 against the original implementation:
+       py2 .\tests\test_world.py
+    2. Python 3 against the restored implementation:
+       py .\tests\test_world.py
 """
 
+import json
 import os
 import sys
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
-def toHex(data):
-    """Convert bytes to hex string for display"""
-    if sys.version_info[0] < 3:
-        if isinstance(data, unicode):
-            data = data.encode('utf-8')
-        return ' '.join('{:02X}'.format(ord(b)) for b in data)
-    else:
-        if isinstance(data, str):
-            data = data.encode('cp437', 'replace')
-        return ' '.join('{:02X}'.format(b) for b in data)
-
-def format_value(val):
-    """Format a value for comparison"""
-    if isinstance(val, float):
-        return "%.6f" % val
-    elif isinstance(val, tuple):
-        return "(" + ", ".join(format_value(v) for v in val) + ")"
-    elif isinstance(val, list):
-        return "[" + ", ".join(format_value(v) for v in val[:10]) + "]"
-    else:
-        return str(val)
-
-def save_reference(name, data):
-    """Save reference string data from py2"""
-    filename = "world_ref_%s.txt" % name
-    with open(filename, 'w') as f:
-        f.write(str(data))
-    print("[SAVED] %s (%s)" % (filename, str(data)[:50]))
-
-def compare_with_reference(name, data):
-    """Compare our output with py2 reference"""
-    if IS_PY2:
-        filename = "world_ref_%s.txt" % name
-    else:
-        filename = "aosdump/world_ref_%s.txt" % name
-    
-    if not os.path.exists(filename):
-        print("[SKIP] No reference file: %s" % filename)
-        return None
-    
-    with open(filename, 'r') as f:
-        reference = f.read().strip()
-    
-    our_str = str(data).strip()
-    
-    if our_str == reference:
-        print("[MATCH] %s - %d bytes identical" % (name, len(our_str)))
-        return True
-    else:
-        print("[DIFF] %s" % name)
-        print("  Reference: %s" % reference[:80])
-        print("  Ours:      %s" % our_str[:80])
-        return False
-
-
-# ============================================================================
-# Setup
-# ============================================================================
 
 IS_PY2 = sys.version_info[0] < 3
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+AOSDUMP_ROOT = os.path.join(PROJECT_ROOT, "aosdump")
+FAILED = 0
 
 if IS_PY2:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    root_dir = os.path.join(script_dir, "aosdump")
-    os.chdir(root_dir)
-    sys.path.insert(0, root_dir)
-    print("=" * 60)
-    print("TESTING ORIGINAL (Python 2) - Generating reference files")
-    print("=" * 60)
+    os.chdir(AOSDUMP_ROOT)
+    sys.path.insert(0, AOSDUMP_ROOT)
+    REF_ROOT = AOSDUMP_ROOT
 else:
-    print("=" * 60)
-    print("TESTING NEW IMPLEMENTATION (Python 3) - Comparing with reference")
-    print("=" * 60)
+    sys.path.insert(0, PROJECT_ROOT)
+    REF_ROOT = AOSDUMP_ROOT
 
-# Import World module
 try:
     import aoslib.world as world
-    print("[OK] Imported aoslib.world\n")
-except ImportError as e:
-    print("[FAIL] Could not import aoslib.world:", e)
-    sys.exit(1)
-
-
-# ============================================================================
-# Test Functions
-# ============================================================================
-
-def test_cube_line_simple():
-    """Test cube_line with simple coordinates"""
-    result = world.cube_line(0, 0, 0, 3, 3, 3)
+    from shared import glm
+except ImportError as exc:
+    message = str(exc)
     if IS_PY2:
-        save_reference("cube_line_simple", result)
+        print("[SKIP] Could not import original aoslib.world: %s" % message)
+        print("[INFO] Missing native DLL dependency or incomplete py2 runtime.")
+        sys.exit(0)
+    raise
+
+
+WORLD_API = [
+    "create_object",
+    "get_block_face_center_position",
+    "get_gravity",
+    "hitscan",
+    "hitscan_accurate",
+    "map",
+    "set_gravity",
+    "timer",
+    "update",
+]
+
+OBJECT_API = [
+    "check_valid_position",
+    "delete",
+    "deleted",
+    "initialize",
+    "name",
+    "position",
+    "update",
+]
+
+PLAYER_API = [
+    "airborne",
+    "burdened",
+    "check_cube_placement",
+    "check_valid_position",
+    "clear_locked_to_box",
+    "crouch",
+    "delete",
+    "deleted",
+    "down",
+    "fall",
+    "get_cube_sq_distance",
+    "hover",
+    "initialize",
+    "is_locked_to_box",
+    "jetpack",
+    "jetpack_active",
+    "jetpack_passive",
+    "jump",
+    "jump_this_frame",
+    "left",
+    "name",
+    "orientation",
+    "parachute",
+    "parachute_active",
+    "position",
+    "right",
+    "s",
+    "set_class_accel_multiplier",
+    "set_class_can_sprint_uphill",
+    "set_class_crouch_sneak_multiplier",
+    "set_class_fall_on_water_damage_multiplier",
+    "set_class_falling_damage_max_damage",
+    "set_class_falling_damage_max_distance",
+    "set_class_falling_damage_min_distance",
+    "set_class_jump_multiplier",
+    "set_class_sprint_multiplier",
+    "set_class_water_friction",
+    "set_climb_slowdown",
+    "set_crouch",
+    "set_dead",
+    "set_exploded",
+    "set_locked_to_box",
+    "set_orientation",
+    "set_position",
+    "set_velocity",
+    "set_walk",
+    "sneak",
+    "sprint",
+    "up",
+    "update",
+    "velocity",
+    "wade",
+]
+
+GENERIC_API = [
+    "check_valid_position",
+    "delete",
+    "deleted",
+    "initialize",
+    "last_hit_collision_block",
+    "last_hit_normal",
+    "name",
+    "position",
+    "set_allow_burying",
+    "set_allow_floating",
+    "set_bouncing",
+    "set_gravity_multiplier",
+    "set_max_speed",
+    "set_position",
+    "set_stop_on_collision",
+    "set_stop_on_face",
+    "set_velocity",
+    "update",
+    "velocity",
+]
+
+CONTROLLED_API = [
+    "check_valid_position",
+    "delete",
+    "deleted",
+    "forward_vector",
+    "initialize",
+    "input_back",
+    "input_forward",
+    "input_left",
+    "input_right",
+    "last_hit_collision_block",
+    "last_hit_normal",
+    "name",
+    "position",
+    "set_allow_burying",
+    "set_allow_floating",
+    "set_bouncing",
+    "set_forward_vector",
+    "set_gravity_multiplier",
+    "set_max_speed",
+    "set_position",
+    "set_stop_on_collision",
+    "set_stop_on_face",
+    "set_velocity",
+    "speed_back",
+    "speed_forward",
+    "speed_left",
+    "speed_right",
+    "strafing",
+    "update",
+    "velocity",
+]
+
+GRENADE_API = ["check_valid_position", "delete", "deleted", "fuse", "initialize", "name", "position", "update", "velocity"]
+FALLING_BLOCKS_API = ["check_valid_position", "delete", "deleted", "initialize", "name", "position", "rotation", "update", "velocity"]
+DEBRIS_API = ["check_valid_position", "delete", "deleted", "free", "in_use", "initialize", "name", "position", "rotation", "rotation_speed", "update", "use", "velocity"]
+HISTORY_API = ["get_client_data", "loop_count", "position", "set_all_data", "velocity"]
+
+REQUIRED_MODULE_NAMES = [
+    "A2",
+    "Debris",
+    "FallingBlocks",
+    "GenericMovement",
+    "Grenade",
+    "Object",
+    "Player",
+    "PlayerMovementHistory",
+    "World",
+    "ControlledGenericMovement",
+    "cube_line",
+    "floor",
+    "get_next_cube",
+    "get_random_vector",
+    "is_centered",
+    "json",
+    "parse_constant_overrides",
+    "sys",
+    "time",
+]
+
+FORBIDDEN_MODULE_NAMES = ["cast_ray"]
+
+
+def ref_path(name):
+    return os.path.join(REF_ROOT, "world_ref_%s.json" % name)
+
+
+def serialize(value):
+    if hasattr(value, "x") and hasattr(value, "y") and hasattr(value, "z"):
+        return [value.x, value.y, value.z]
+    if isinstance(value, dict):
+        return dict((key, serialize(val)) for key, val in sorted(value.items()))
+    if isinstance(value, (list, tuple)):
+        return [serialize(item) for item in value]
+    return value
+
+
+def save_or_compare(name, value):
+    global FAILED
+    payload = json.dumps(serialize(value), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    path = ref_path(name)
+    if IS_PY2:
+        with open(path, "wb") as handle:
+            handle.write(payload)
+        print("[SAVED] %s" % os.path.basename(path))
+        return
+
+    if not os.path.exists(path):
+        FAILED += 1
+        print("[FAIL] Missing reference %s" % os.path.basename(path))
+        return
+
+    with open(path, "rb") as handle:
+        reference = handle.read()
+    if payload == reference:
+        print("[MATCH] %s" % name)
     else:
-        compare_with_reference("cube_line_simple", result)
+        FAILED += 1
+        print("[DIFF] %s" % name)
+        print("  ref : %s" % reference[:120])
+        print("  ours: %s" % payload[:120])
+
+
+def check(label, condition, detail):
+    global FAILED
+    if condition:
+        print("[OK] %s" % label)
+    else:
+        FAILED += 1
+        print("[FAIL] %s: %s" % (label, detail))
+
+
+def dir_list(obj):
+    return [name for name in dir(obj) if not name.startswith("__")]
+
+
+def mutability_result(obj, assignments):
+    result = {}
+    for name, value in assignments:
+        try:
+            setattr(obj, name, value)
+            result[name] = True
+        except Exception:
+            result[name] = False
     return result
 
-def test_cube_line_diagonal():
-    """Test cube_line diagonal"""
-    result = world.cube_line(1, 1, 1, 5, 3, 2)
-    if IS_PY2:
-        save_reference("cube_line_diagonal", result)
-    else:
-        compare_with_reference("cube_line_diagonal", result)
-    return result
 
-def test_cube_line_long():
-    """Test cube_line with longer distance"""
-    result = world.cube_line(0, 0, 0, 10, 5, 2)
-    if IS_PY2:
-        save_reference("cube_line_long", result)
-    else:
-        compare_with_reference("cube_line_long", result)
-    return result
-
-def test_floor_positive():
-    """Test floor function with positive float"""
-    result = world.floor(3.7)
-    if IS_PY2:
-        save_reference("floor_positive", result)
-    else:
-        compare_with_reference("floor_positive", result)
-    return result
-
-def test_floor_negative():
-    """Test floor function with negative float"""
-    result = world.floor(-2.3)
-    if IS_PY2:
-        save_reference("floor_negative", result)
-    else:
-        compare_with_reference("floor_negative", result)
-    return result
-
-def test_is_centered_true():
-    """Test is_centered returns true for centered position"""
-    result = world.is_centered((1.5, 2.5, 3.0))
-    if IS_PY2:
-        save_reference("is_centered_true", result)
-    else:
-        compare_with_reference("is_centered_true", result)
-    return result
-
-def test_is_centered_false():
-    """Test is_centered returns false for non-centered position"""
-    result = world.is_centered((1.1, 2.9, 3.0))
-    if IS_PY2:
-        save_reference("is_centered_false", result)
-    else:
-        compare_with_reference("is_centered_false", result)
-    return result
-
-def test_get_next_cube():
-    """Test get_next_cube function"""
-    result = world.get_next_cube((5.0, 5.0, 5.0), (1.0, 0.0, 0.0))
-    if IS_PY2:
-        save_reference("get_next_cube", result)
-    else:
-        compare_with_reference("get_next_cube", result)
-    return result
+def test_module_surface():
+    for name in REQUIRED_MODULE_NAMES:
+        check("module has %s" % name, hasattr(world, name), "missing")
+    for name in FORBIDDEN_MODULE_NAMES:
+        check("module lacks %s" % name, not hasattr(world, name), "unexpected public name")
 
 
-# ============================================================================
-# World Class Tests
-# ============================================================================
-
-def test_world_gravity():
-    """Test World gravity getter"""
-    w = world.World(None)
-    result = w.get_gravity()
-    if IS_PY2:
-        save_reference("world_gravity", result)
-    else:
-        compare_with_reference("world_gravity", result)
-    return result
-
-def test_world_block_face_center():
-    """Test World block face center position"""
-    w = world.World(None)
-    results = []
-    for face in range(6):
-        result = w.get_block_face_center_position(5, 5, 5, face)
-        results.append(result)
-    
-    result_str = str(results)
-    if IS_PY2:
-        save_reference("world_block_face_center", result_str)
-    else:
-        compare_with_reference("world_block_face_center", result_str)
-    return results
+def test_class_dirs():
+    check("World dir", dir_list(world.World) == WORLD_API, dir_list(world.World))
+    check("Object dir", dir_list(world.Object) == OBJECT_API, dir_list(world.Object))
+    check("Player dir", dir_list(world.Player) == PLAYER_API, dir_list(world.Player))
+    check("GenericMovement dir", dir_list(world.GenericMovement) == GENERIC_API, dir_list(world.GenericMovement))
+    check("ControlledGenericMovement dir", dir_list(world.ControlledGenericMovement) == CONTROLLED_API, dir_list(world.ControlledGenericMovement))
+    check("Grenade dir", dir_list(world.Grenade) == GRENADE_API, dir_list(world.Grenade))
+    check("FallingBlocks dir", dir_list(world.FallingBlocks) == FALLING_BLOCKS_API, dir_list(world.FallingBlocks))
+    check("Debris dir", dir_list(world.Debris) == DEBRIS_API, dir_list(world.Debris))
+    check("PlayerMovementHistory dir", dir_list(world.PlayerMovementHistory) == HISTORY_API, dir_list(world.PlayerMovementHistory))
 
 
-# ============================================================================
-# Player Class Tests
-# ============================================================================
+def test_helpers_and_reference_values():
+    save_or_compare("cube_line_2_1_0", world.cube_line(0, 0, 0, 2, 1, 0))
+    save_or_compare("cube_line_3_3_3", world.cube_line(0, 0, 0, 3, 3, 3))
+    save_or_compare(
+        "get_next_cube_faces",
+        [serialize(world.get_next_cube(glm.IntVector3(10, 20, 30), face)) for face in range(8)],
+    )
+    save_or_compare("floor_neg", world.floor(-2.3))
+    save_or_compare("A2", world.A2())
+    save_or_compare("parse_constant_overrides", world.parse_constant_overrides())
+    save_or_compare(
+        "is_centered",
+        world.is_centered(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.1),
+    )
 
-def test_player_init():
-    """Test Player initialization defaults"""
-    w = world.World(None)
-    p = world.Player(w)
-    
-    result = {
-        'airborne': p.airborne,
-        'crouch': p.crouch,
-        'sprint': p.sprint,
-        'jump': p.jump,
+
+def test_world_and_player_reference_values():
+    test_world = world.World(None)
+    save_or_compare("world_default_gravity", test_world.get_gravity())
+    test_world.set_gravity(3.5)
+    save_or_compare("world_shared_gravity", world.World(None).get_gravity())
+    test_world.set_gravity(1.0)
+
+    face_centers = [
+        serialize(test_world.get_block_face_center_position(glm.IntVector3(5, 6, 7), face))
+        for face in range(6)
+    ]
+    save_or_compare("world_face_centers", face_centers)
+
+    player = world.Player(test_world)
+    defaults = {
+        "name": player.name,
+        "position": serialize(player.position),
+        "velocity": serialize(player.velocity),
+        "orientation": serialize(player.orientation),
+        "s": serialize(player.s),
+        "airborne": player.airborne,
+        "burdened": player.burdened,
+        "crouch": player.crouch,
+        "down": player.down,
+        "fall": player.fall,
+        "hover": player.hover,
+        "jump": player.jump,
+        "jump_this_frame": player.jump_this_frame,
+        "left": player.left,
+        "right": player.right,
+        "sneak": player.sneak,
+        "sprint": player.sprint,
+        "up": player.up,
+        "wade": player.wade,
     }
-    
-    result_str = str(sorted(result.items()))
-    if IS_PY2:
-        save_reference("player_init", result_str)
-    else:
-        compare_with_reference("player_init", result_str)
-    return result
+    save_or_compare("player_defaults", defaults)
 
-def test_player_position():
-    """Test Player set_position"""
-    w = world.World(None)
-    p = world.Player(w)
-    p.set_position(100.5, 200.25, 50.0)
-    
-    result = p.position
-    if IS_PY2:
-        save_reference("player_position", result)
-    else:
-        compare_with_reference("player_position", result)
-    return result
+    player.set_position(0.0, 0.0, 0.0)
+    placement = player.check_cube_placement(glm.IntVector3(1, 2, 3), 10.0)
+    save_or_compare("player_cube_placement", {"ok": placement, "sq_dist": player.get_cube_sq_distance()})
 
-def test_player_velocity():
-    """Test Player set_velocity"""
-    w = world.World(None)
-    p = world.Player(w)
-    p.set_velocity(5.0, -3.0, 10.0)
-    
-    result = p.velocity
-    if IS_PY2:
-        save_reference("player_velocity", result)
-    else:
-        compare_with_reference("player_velocity", result)
-    return result
-
-def test_player_orientation():
-    """Test Player orientation"""
-    w = world.World(None)
-    p = world.Player(w)
-    p.set_orientation((1.0, 0.0, 0.0))
-    
-    result = p.orientation
-    if IS_PY2:
-        save_reference("player_orientation", result)
-    else:
-        compare_with_reference("player_orientation", result)
-    return result
-
-def test_player_cube_distance():
-    """Test Player get_cube_sq_distance"""
-    w = world.World(None)
-    p = world.Player(w)
-    p.set_position(100.0, 100.0, 50.0)
-    
-    result = p.get_cube_sq_distance(105, 100, 50)
-    if IS_PY2:
-        save_reference("player_cube_distance", format_value(result))
-    else:
-        compare_with_reference("player_cube_distance", format_value(result))
-    return result
+    mutability = mutability_result(
+        player,
+        [
+            ("airborne", False),
+            ("crouch", False),
+            ("down", False),
+            ("fall", False),
+            ("left", False),
+            ("right", False),
+            ("up", False),
+            ("wade", False),
+            ("burdened", True),
+            ("hover", True),
+            ("is_locked_to_box", True),
+            ("jetpack", True),
+            ("jetpack_active", True),
+            ("jetpack_passive", True),
+            ("jump", True),
+            ("jump_this_frame", True),
+            ("orientation", glm.Vector3(0.0, 1.0, 0.0)),
+            ("parachute", True),
+            ("parachute_active", True),
+            ("position", glm.Vector3(1.0, 2.0, 3.0)),
+            ("s", glm.Vector3(1.0, 0.0, 0.0)),
+            ("sneak", True),
+            ("sprint", True),
+            ("velocity", glm.Vector3(4.0, 5.0, 6.0)),
+        ],
+    )
+    save_or_compare("player_mutability", mutability)
 
 
-# ============================================================================
-# Grenade Class Tests
-# ============================================================================
-
-def test_grenade_init():
-    """Test Grenade initialization"""
-    w = world.World(None)
-    g = world.Grenade(w)
-    
-    result = {
-        'fuse': g.fuse,
-        'velocity': g.velocity,
-        'position': g.position,
-    }
-    
-    result_str = str(sorted(result.items()))
-    if IS_PY2:
-        save_reference("grenade_init", result_str)
-    else:
-        compare_with_reference("grenade_init", result_str)
-    return result
+def test_constructor_contracts():
+    check("World() fails", _raises(lambda: world.World()), "expected TypeError")
+    check("World(None) works", isinstance(world.World(None), world.World), "constructor failed")
+    check("Object(None) works", isinstance(world.Object(None), world.Object), "constructor failed")
+    check("Player(None) works", isinstance(world.Player(None), world.Player), "constructor failed")
+    check(
+        "Grenade ctor",
+        isinstance(world.Grenade(world.World(None), glm.Vector3(1, 2, 3), glm.Vector3(4, 5, 6), 2.5), world.Grenade),
+        "constructor failed",
+    )
 
 
-# ============================================================================
-# GenericMovement Tests
-# ============================================================================
-
-def test_generic_movement_init():
-    """Test GenericMovement initialization"""
-    w = world.World(None)
-    gm = world.GenericMovement(w)
-    
-    result = {
-        'velocity': gm.velocity,
-        'position': gm.position,
-        'deleted': gm.deleted,
-    }
-    
-    result_str = str(sorted(result.items()))
-    if IS_PY2:
-        save_reference("generic_movement_init", result_str)
-    else:
-        compare_with_reference("generic_movement_init", result_str)
-    return result
+def _raises(fn):
+    try:
+        fn()
+    except Exception:
+        return True
+    return False
 
 
-# ============================================================================
-# Run All Tests
-# ============================================================================
+def main():
+    test_module_surface()
+    test_class_dirs()
+    test_helpers_and_reference_values()
+    test_world_and_player_reference_values()
+    test_constructor_contracts()
 
-def run_all_tests():
-    print("\n--- Module Functions ---")
-    test_cube_line_simple()
-    test_cube_line_diagonal()
-    test_cube_line_long()
-    test_floor_positive()
-    test_floor_negative()
-    # Skipped: is_centered and get_next_cube have different signatures in original
-    # is_centered takes 10 doubles, get_next_cube unknown - need IDA research
-    # test_is_centered_true()
-    # test_is_centered_false()
-    # test_get_next_cube()
-    
-    # Skipped: World/Player/Grenade class methods have different signatures
-    # Original APIs differ significantly from decompiled stubs
-    # Need IDA research to determine correct signatures
-    print("\n--- World Class (SKIPPED - different signatures) ---")
-    # test_world_gravity()  # Returns 1.0 not -32.0!
-    # test_world_block_face_center()  # Takes 2 args not 4
-    
-    print("\n--- Player Class (SKIPPED - need signature research) ---")
-    # test_player_init()
-    # test_player_position()
-    # test_player_velocity()
-    # test_player_orientation()
-    # test_player_cube_distance()
-    
-    print("\n--- Grenade Class (SKIPPED) ---")
-    # test_grenade_init()
-    
-    print("\n--- GenericMovement Class (SKIPPED) ---")
-    # test_generic_movement_init()
-    print("Comparison complete. Check for [DIFF] items above.")
-    print("=" * 60)
+    if FAILED:
+        print("\n[FAIL] %d world checks failed" % FAILED)
+        sys.exit(1)
+
+    print("\n[OK] world checks passed")
 
 
 if __name__ == "__main__":
-    run_all_tests()
+    main()
