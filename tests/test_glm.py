@@ -11,17 +11,15 @@ import os
 #Make root directory "aosdump" if python 2 else keep this dir as root
 
 # Set the root directory based on Python version
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+aosdump_root = os.path.join(project_root, "aosdump")
+
 if sys.version_info[0] < 3:
-    # For Python 2, set "aosdump" as root directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    root_dir = os.path.join(script_dir, "aosdump")
-    if not os.path.exists(root_dir):
-        os.makedirs(root_dir)
-    os.chdir(root_dir)
-    sys.path.insert(0, root_dir)
+    os.chdir(aosdump_root)
+    sys.path.insert(0, aosdump_root)
 else:
-    # For Python 3+, keep current directory as root
-    pass
+    sys.path.insert(0, project_root)
 
 # Import after setting up the paths
 from shared.glm import Vector3, IntVector3, Matrix4
