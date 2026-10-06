@@ -1,3 +1,5 @@
+# Out of date project checkout [BattleSpades](https://github.com/KikoTs/BattleSpades) in GitHub for full library
+
 # Ace Of Spades Library Reverse Engineering Project
 
 This project reverse engineers Ace Of Spades 1.x libraries with a focus on packets, map loading, world logic, and the long-term goal of rebuilding a 1:1 compatible server.
